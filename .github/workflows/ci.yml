@@ -1,0 +1,74 @@
+name: CipherVault-X CI & Multi-Platform Build
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core-security-suite:
+    name: Core Cryptography & Recovery Suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install OpenSSL & ICU development headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libicu-dev pkg-config
+      - name: Run ciphervault-core unit, tamper, streaming & recovery tests
+        run: cargo test -p ciphervault-core -- --nocapture
+
+  windows-desktop-installer:
+    name: Windows Desktop Installer (Tauri 2 MSI / NSIS)
+    needs: core-security-suite
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install frontend dependencies
+        run: npm install
+      - name: Typecheck & build frontend
+        run: npm run build
+      - name: Build Tauri 2 Windows Installer
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --bundles msi,nsis
+
+  android-apk-check:
+    name: Android APK Target Verification
+    needs: core-security-suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install frontend & Tauri CLI
+        run: npm install
+      - name: Initialize & verify Tauri Android target
+        run: npx tauri android init
