@@ -1,4 +1,4 @@
-name: CipherVault-X CI & Multi-Platform Build
+name: CipherVault-X CI & Multi-Platform Build (Windows + Android APK)
 
 on:
   push:
@@ -8,14 +8,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   core-security-suite:
-    name: Core Cryptography & Recovery Suite (${{ matrix.os }})
+    name: Core Cryptography & Delta Sync Suite (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -27,8 +27,43 @@ jobs:
       - name: Install OpenSSL & ICU development headers (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libssl-dev libicu-dev pkg-config
-      - name: Run ciphervault-core unit, tamper, streaming & recovery tests
+      - name: Run ciphervault-core unit, tamper, streaming, recovery & delta-sync tests
         run: cargo test -p ciphervault-core -- --nocapture
+
+  android-apk-release:
+    name: Build Installable Android APK (arm64-v8a + x86_64)
+    needs: core-security-suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK & NDK r27
+        run: sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies & build frontend
+        run: |
+          npm install
+          npm run build
+      - name: Initialize & build Tauri 2 Android APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: |
+          npx tauri android init
+          npx tauri android build --apk true
+      - name: Upload Installable Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CipherVault-X-Android-APK
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
 
   windows-desktop-installer:
     name: Windows Desktop Installer (Tauri 2 MSI / NSIS)
@@ -48,27 +83,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         with:
           args: --bundles msi,nsis
-
-  android-apk-check:
-    name: Android APK Target Verification
-    needs: core-security-suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
         with:
-          targets: aarch64-linux-android,x86_64-linux-android
-      - uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - name: Install Android NDK
-        run: sdkmanager --install "ndk;27.0.12077973"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Install frontend & Tauri CLI
-        run: npm install
-      - name: Initialize & verify Tauri Android target
-        run: npx tauri android init
+          name: CipherVault-X-Windows-Installer
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe

@@ -178,11 +178,46 @@ pub fn verify_ciphertext_only(rel_path: &str, bytes: &[u8]) -> Result<()> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloudProviderKind {
+    LocalMirror,
+    MegaSyncFolder,
+    GoogleDriveFolder,
+    OneDriveFolder,
+    DropboxFolder,
+    WebDavMount,
+}
+
+impl CloudProviderKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CloudProviderKind::LocalMirror => "local-mirror",
+            CloudProviderKind::MegaSyncFolder => "mega-sync",
+            CloudProviderKind::GoogleDriveFolder => "google-drive",
+            CloudProviderKind::OneDriveFolder => "onedrive",
+            CloudProviderKind::DropboxFolder => "dropbox",
+            CloudProviderKind::WebDavMount => "webdav",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "mega" | "mega-sync" => CloudProviderKind::MegaSyncFolder,
+            "gdrive" | "google-drive" => CloudProviderKind::GoogleDriveFolder,
+            "onedrive" => CloudProviderKind::OneDriveFolder,
+            "dropbox" => CloudProviderKind::DropboxFolder,
+            "webdav" | "s3" => CloudProviderKind::WebDavMount,
+            _ => CloudProviderKind::LocalMirror,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SyncSummary {
     pub provider: String,
     pub uploaded: u64,
     pub downloaded: u64,
+    pub deleted_remote: u64,
     pub unchanged: u64,
     pub bytes_transferred: u64,
 }
@@ -193,7 +228,24 @@ pub struct SyncEngine;
 
 impl SyncEngine {
     /// Push local ciphertext changes to the remote adapter and pull remote-only ciphertext objects.
+    /// Unlike fixed-size containers (e.g., VeraCrypt), only new or modified 32 KiB-chunked `.c9r`
+    /// files are uploaded (O(delta) bandwidth).
     pub fn sync_bidirectional(vault_root: &Path, adapter: &dyn CloudAdapter) -> Result<SyncSummary> {
+        Self::sync_with_options(vault_root, adapter, false)
+    }
+
+    /// Close-and-sync mode (`mirror_deletions = true`): invoked automatically when locking a vault
+    /// so any newly added/modified encrypted files are uploaded and any files deleted during the
+    /// session are removed from the cloud mirror.
+    pub fn sync_on_vault_close(vault_root: &Path, adapter: &dyn CloudAdapter) -> Result<SyncSummary> {
+        Self::sync_with_options(vault_root, adapter, true)
+    }
+
+    pub fn sync_with_options(
+        vault_root: &Path,
+        adapter: &dyn CloudAdapter,
+        mirror_deletions: bool,
+    ) -> Result<SyncSummary> {
         let mut local_objs = Vec::new();
         walk_rel(vault_root, vault_root, &mut local_objs)?;
         let remote_objs = adapter.list_objects()?;
@@ -221,18 +273,24 @@ impl SyncEngine {
             }
         }
 
-        // 2. Download remote ciphertext files that do not exist locally yet.
+        // 2. When closing/locking a vault (`mirror_deletions = true`), propagate local deletions to
+        //    the cloud target; otherwise pull remote-only ciphertext objects.
         for (rel, _rem) in &remote_map {
             if !local_map.contains_key(rel) {
-                let bytes = adapter.get_object(rel)?;
-                verify_ciphertext_only(rel, &bytes)?;
-                let dest = vault_root.join(rel);
-                if let Some(p) = dest.parent() {
-                    fs::create_dir_all(p)?;
+                if mirror_deletions {
+                    adapter.delete_object(rel)?;
+                    summary.deleted_remote += 1;
+                } else {
+                    let bytes = adapter.get_object(rel)?;
+                    verify_ciphertext_only(rel, &bytes)?;
+                    let dest = vault_root.join(rel);
+                    if let Some(p) = dest.parent() {
+                        fs::create_dir_all(p)?;
+                    }
+                    fsutil::write_atomic(&dest, &bytes, true)?;
+                    summary.downloaded += 1;
+                    summary.bytes_transferred += bytes.len() as u64;
                 }
-                fsutil::write_atomic(&dest, &bytes, true)?;
-                summary.downloaded += 1;
-                summary.bytes_transferred += bytes.len() as u64;
             }
         }
 
@@ -325,5 +383,34 @@ mod tests {
         let res = SyncEngine::sync_bidirectional(&vault_a, &adapter);
         assert!(res.is_err(), "plaintext file must be rejected by sync guard");
         assert!(!mirror_dir.join("accidental-plaintext.txt").exists());
+    }
+
+    #[test]
+    fn incremental_delta_sync_on_vault_close() {
+        let d = TempDir::new().unwrap();
+        let vault_a = d.path().join("vault");
+        let mega_mirror = d.path().join("MEGA-Sync-Folder");
+        let adapter = LocalMirrorAdapter::new(mega_mirror).unwrap();
+
+        // Session 1: Create vault with 2 files, close & auto-sync
+        let v = Vault::create(&vault_a, "pw", KdfParams::INSECURE_TEST).unwrap();
+        v.write_file("/a.txt", Cursor::new(b"file-a-v1".to_vec()), false, None).unwrap();
+        v.write_file("/b.txt", Cursor::new(b"file-b-v1".to_vec()), false, None).unwrap();
+        drop(v);
+        let s1 = SyncEngine::sync_on_vault_close(&vault_a, &adapter).unwrap();
+        assert_eq!(s1.uploaded, 4); // vault.cryptomator, masterkey.cryptomator, and 2 .c9r files
+
+        // Session 2: Unlock, add /c.txt, update /a.txt, delete /b.txt, close & auto-sync
+        let v = Vault::unlock(&vault_a, "pw").unwrap();
+        v.write_file("/a.txt", Cursor::new(b"file-a-v2-updated".to_vec()), true, None).unwrap();
+        v.write_file("/c.txt", Cursor::new(b"file-c-new".to_vec()), false, None).unwrap();
+        v.delete("/b.txt").unwrap();
+        drop(v);
+
+        let s2 = SyncEngine::sync_on_vault_close(&vault_a, &adapter).unwrap();
+        // Only the 2 changed/new .c9r files are uploaded; the 2 config/masterkey files are unchanged; /b.txt's .c9r is deleted!
+        assert_eq!(s2.uploaded, 2);
+        assert_eq!(s2.unchanged, 2);
+        assert_eq!(s2.deleted_remote, 1);
     }
 }

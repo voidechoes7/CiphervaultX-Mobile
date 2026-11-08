@@ -498,6 +498,16 @@ fn main() {
                 let _ = out.write_all(json.as_bytes());
                 return;
             }
+            if method == "GET" && path.starts_with("/logo-cyberpunk.jpg") {
+                let img = fs::read("public/logo-cyberpunk.jpg").unwrap_or_default();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nCache-Control: max-age=3600\r\nConnection: close\r\n\r\n",
+                    img.len()
+                );
+                let _ = out.write_all(header.as_bytes());
+                let _ = out.write_all(&img);
+                return;
+            }
             // Serve the UI HTML
             let html = fs::read(&ui_path).unwrap_or_else(|_| b"<h1>CipherVault-X UI not found</h1>".to_vec());
             let header = format!(
