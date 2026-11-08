@@ -1,0 +1,12 @@
+[package]
+name = "ciphervault-core"
+description = "CipherVault-X vault engine: cryptography, vault format and encrypted filesystem (UI-agnostic)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Links directly against system OpenSSL 3.0 (libcrypto) and ICU (libicuuc) via crypto::ffi.
+# When crates.io is available in CI, optional pure-Rust RustCrypto backend can also be enabled.
