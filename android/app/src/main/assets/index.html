@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en" data-theme="obsidian-dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CipherVault-X — Zero-Knowledge AES-256 Vault</title>
+<style>
+:root, [data-theme="obsidian-dark"] {
+  --bg: #080b11; --surface: #0f1520; --surface-2: #172031; --border: #24324a;
+  --fg: #f1f5f9; --muted: #94a3b8; --accent: #06b6d4; --accent-2: #a855f7; --accent-fg: #031117;
+  --danger: #f43f5e; --success: #10b981;
+}
+[data-theme="arctic-light"] {
+  --bg: #f8fafc; --surface: #ffffff; --surface-2: #f1f5f9; --border: #cbd5e1;
+  --fg: #0f172a; --muted: #475569; --accent: #0284c7; --accent-2: #7c3aed; --accent-fg: #ffffff;
+  --danger: #dc2626; --success: #059669;
+}
+[data-theme="midnight-blue"] {
+  --bg: #050d1a; --surface: #0a192f; --surface-2: #112645; --border: #1d3b66;
+  --fg: #e2e8f0; --muted: #7dd3fc; --accent: #38bdf8; --accent-2: #818cf8; --accent-fg: #04101f;
+  --danger: #f87171; --success: #34d399;
+}
+[data-theme="oled-black"] {
+  --bg: #000000; --surface: #08080c; --surface-2: #12121a; --border: #272736;
+  --fg: #fafafa; --muted: #a1a1aa; --accent: #c084fc; --accent-2: #22d3ee; --accent-fg: #090414;
+  --danger: #fb7185; --success: #4ade80;
+}
+[data-theme="emerald"] {
+  --bg: #03110c; --surface: #071e16; --surface-2: #0d2c21; --border: #154c38;
+  --fg: #ecfdf5; --muted: #6ee7b7; --accent: #10b981; --accent-2: #06b6d4; --accent-fg: #022c22;
+  --danger: #fb7185; --success: #34d399;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  display: flex; min-height: 100vh; transition: background 0.18s, color 0.18s;
+}
+aside {
+  width: 296px; background: var(--surface); border-right: 1px solid var(--border);
+  padding: 18px; display: flex; flex-direction: column; justify-content: space-between;
+}
+main { flex: 1; padding: 24px 30px; overflow-y: auto; }
+.brand { display: flex; gap: 12px; align-items: center; margin-bottom: 18px; }
+.brand-logo {
+  width: 46px; height: 46px; border-radius: 10px; object-fit: cover;
+  border: 1px solid var(--accent); box-shadow: 0 0 14px rgba(6, 182, 212, 0.35);
+}
+.brand h1 { font-size: 16px; font-weight: 800; letter-spacing: 0.03em; }
+.brand p { font-size: 12px; color: var(--muted); }
+.section-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 14px 0 6px 6px; font-weight: 600; }
+.btn {
+  background: var(--surface-2); color: var(--fg); border: 1px solid var(--border);
+  padding: 8px 13px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn:hover { filter: brightness(1.12); }
+.btn-accent {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #ffffff; border: none;
+}
+.btn-danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+.nav-item {
+  width: 100%; text-align: left; padding: 9px 11px; border-radius: 7px; border: none;
+  background: transparent; color: var(--fg); font-size: 13px; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;
+}
+.nav-item.active { background: var(--surface-2); font-weight: 600; border-left: 3px solid var(--accent); }
+.badge { font-size: 12px; padding: 2px 7px; border-radius: 5px; font-weight: 600; }
+.badge-ok { background: rgba(16, 185, 129, 0.18); color: var(--success); }
+.badge-lock { background: var(--border); color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 16px; margin-bottom: 16px; }
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+input, select {
+  background: var(--surface-2); color: var(--fg); border: 1px solid var(--border);
+  padding: 8px 11px; border-radius: 7px; font-size: 13px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 11px 14px; background: var(--surface-2); color: var(--muted); font-size: 12px; text-transform: uppercase; }
+td { padding: 11px 14px; border-top: 1px solid var(--border); }
+tr:hover td { background: var(--surface-2); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.banner { padding: 11px 15px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--accent); background: var(--surface-2); }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 10px; }
+.theme-card { padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; text-align: left; color: var(--fg); }
+.theme-card.active { border-color: var(--accent); background: var(--surface-2); }
+pre { background: var(--bg); border: 1px solid var(--border); padding: 12px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; margin-top: 8px; }
+</style>
+</head>
+<body>
+<aside>
+  <div>
+    <div class="brand">
+      <img src="logo-cyberpunk.jpg" alt="CipherVault-X Logo" class="brand-logo" />
+      <div style="flex:1">
+        <h1>CIPHERVAULT-X</h1>
+        <p>Format 8 · SIV_GCM · AES-256</p>
+      </div>
+      <button class="btn btn-accent" onclick="openCreateModal()">+ Vault</button>
+    </div>
+    <div class="section-label">Encrypted Vaults</div>
+    <div id="vault-list"></div>
+    <div class="section-label">Workspace</div>
+    <button class="nav-item active" id="tab-explorer" onclick="switchTab('explorer')"><span>Encrypted File Explorer</span></button>
+    <button class="nav-item" id="tab-cloud" onclick="switchTab('cloud')"><span>MEGA / Cloud Delta Sync</span></button>
+    <button class="nav-item" id="tab-integrity" onclick="switchTab('integrity')"><span>AEAD Integrity Scanner</span></button>
+    <button class="nav-item" id="tab-settings" onclick="switchTab('settings')"><span>Security &amp; 6 Themes</span></button>
+  </div>
+  <div style="border-top:1px solid var(--border); padding-top:12px; display:flex; flex-direction:column; gap:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+      <span style="color:var(--muted)">Theme</span>
+      <select id="theme-select" onchange="applyTheme(this.value)">
+        <option value="obsidian-dark">Obsidian Dark</option>
+        <option value="arctic-light">Arctic Light</option>
+        <option value="midnight-blue">Midnight Blue</option>
+        <option value="oled-black">OLED Black</option>
+        <option value="emerald">Emerald</option>
+        <option value="system-adaptive">System Adaptive</option>
+      </select>
+    </div>
+    <button class="btn btn-danger" id="lock-btn" onclick="lockActiveVault()">Close Vault &amp; Auto-Sync Delta</button>
+  </div>
+</aside>
+<main>
+  <div id="banner" class="banner" style="display:none"></div>
+  <div id="view-unlock" class="card" style="display:none; max-width:460px; margin:40px auto; text-align:center;">
+    <img src="logo-cyberpunk.jpg" alt="CipherVault-X" style="width:84px;height:84px;border-radius:16px;margin-bottom:12px;border:1px solid var(--accent);" />
+    <h2 id="unlock-title" style="font-size:16px; margin-bottom:6px;">Unlock Vault</h2>
+    <p id="unlock-path" class="mono" style="color:var(--muted); margin-bottom:12px; word-break:break-all;"></p>
+    <input type="password" id="unlock-pw" value="CipherVault-Demo-2026!" placeholder="Vault passphrase" style="width:100%; margin-bottom:10px;" />
+    <button class="btn btn-accent" style="width:100%" onclick="unlockActiveVault()">Derive KEK (scrypt) &amp; Unwrap Masterkey</button>
+  </div>
+
+  <div id="view-explorer">
+    <div class="toolbar">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn" onclick="navigate('/')">Root (/)</button>
+        <span id="crumb" class="mono">/</span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <input type="search" id="search-input" placeholder="Search cleartext names..." oninput="loadEntries()" />
+        <select id="filter-select" onchange="renderEntries()">
+          <option value="all">All items</option>
+          <option value="directory">Folders only</option>
+          <option value="file">Files only</option>
+        </select>
+      </div>
+    </div>
+    <div class="toolbar card" style="padding:12px;">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input id="mkdir-name" placeholder="New encrypted folder..." />
+        <button class="btn" onclick="createFolder()">+ Folder</button>
+      </div>
+      <div style="display:flex; gap:6px; align-items:center; flex:1; justify-content:flex-end;">
+        <input id="file-name" placeholder="File name (e.g. note.md)" style="width:165px;" />
+        <input id="file-body" placeholder="Content to encrypt (32 KiB AES-256-GCM chunks)..." style="flex:1; max-width:280px;" />
+        <button class="btn btn-accent" onclick="writeEncryptedFile()">Encrypt &amp; Add</button>
+        <label class="btn" style="cursor:pointer;">
+          Import Host File
+          <input type="file" style="display:none" onchange="importDeviceFile(this)" />
+        </label>
+      </div>
+    </div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table>
+        <thead><tr><th>Cleartext Name (AES-SIV Decrypted)</th><th>Kind</th><th>Cleartext Size</th><th style="text-align:right">Actions</th></tr></thead>
+        <tbody id="entry-rows"></tbody>
+      </table>
+    </div>
+    <div id="preview-card" class="card" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong id="preview-title" style="font-size:13px;">Decrypted In-Memory Preview</strong>
+        <button class="btn" onclick="closePreview()">Close &amp; Scrub</button>
+      </div>
+      <pre id="preview-body" class="mono"></pre>
+    </div>
+  </div>
+
+  <div id="view-cloud" style="display:none;">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+          <h2 style="font-size:15px;">Per-File Incremental Cloud Sync (MEGA / Google Drive / OneDrive / WebDAV)</h2>
+          <p style="font-size:12px; color:var(--muted); margin-top:4px;">
+            Unlike VeraCrypt fixed-size containers, CipherVault-X encrypts each file into independent <code>.c9r</code> ciphertext files. Adding or editing a 50 KB file only uploads that 50 KB <code>.c9r</code> delta when you close the vault.
+          </p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="cloud-provider">
+            <option value="MEGA Sync">MEGA Sync Target</option>
+            <option value="Google Drive">Google Drive Target</option>
+            <option value="OneDrive">OneDrive Target</option>
+            <option value="Dropbox">Dropbox Target</option>
+            <option value="WebDAV / S3">WebDAV / S3 Target</option>
+          </select>
+          <button class="btn btn-accent" onclick="runSync()">Sync Ciphertext Delta Now</button>
+        </div>
+      </div>
+    </div>
+    <div id="sync-out" class="card mono">Ready to synchronize encrypted vault tree.</div>
+    <div class="card">
+      <h3 style="font-size:12px; text-transform:uppercase; color:var(--muted); margin-bottom:8px;">On-Disk Ciphertext Layout (Only .c9r / .c9s Ciphertext Uploaded to Cloud)</h3>
+      <div id="ct-list" class="mono" style="max-height:280px; overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <div id="view-integrity" style="display:none;">
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h2 style="font-size:15px;">Full Vault AEAD Integrity Verification</h2>
+        <p style="font-size:12px; color:var(--muted); margin-top:4px;">Authenticates vault.cryptomator HS256 JWS, directory ID backups, AES-256-SIV filenames, and every 32 KiB AES-256-GCM chunk tag.</p>
+      </div>
+      <button class="btn btn-accent" onclick="runIntegrity()">Run Full Scan</button>
+    </div>
+    <div id="integrity-out" class="card mono">Click "Run Full Scan" to verify all cryptographic tags on disk.</div>
+  </div>
+
+  <div id="view-settings" style="display:none;">
+    <div class="card">
+      <h2 style="font-size:15px;">6 Built-In Premium Themes</h2>
+      <div class="theme-grid" id="theme-cards"></div>
+    </div>
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="font-size:14px;">Auto-Sync on Vault Lock &amp; Inactivity Timer</h3>
+        <p style="font-size:12px; color:var(--muted);">Automatically scrubs masterkeys via OPENSSL_cleanse and pushes only modified .c9r ciphertext files to your cloud folder.</p>
+      </div>
+      <select onchange="showBanner('Auto-lock updated to ' + this.value + ' min')">
+        <option value="5">5 minutes</option>
+        <option value="1">1 minute</option>
+        <option value="15">15 minutes</option>
+        <option value="30">30 minutes</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="create-modal" class="card" style="display:none; max-width:460px; margin:20px auto;">
+    <h3 style="font-size:15px; margin-bottom:10px;">Create New Cryptomator Format 8 Vault</h3>
+    <input id="new-vault-name" placeholder="Vault display name" style="width:100%; margin-bottom:8px;" />
+    <input id="new-vault-pw" type="password" placeholder="Master passphrase" style="width:100%; margin-bottom:10px;" />
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn" onclick="document.getElementById('create-modal').style.display='none'">Cancel</button>
+      <button class="btn btn-accent" onclick="createNewVault()">Initialize Vault</button>
+    </div>
+  </div>
+</main>
+<script>
+const THEME_SPECS = [
+  { id: "obsidian-dark", label: "Obsidian Dark", desc: "Deep cyberpunk carbon with neon cyan & violet accents", swatch: "#06b6d4" },
+  { id: "arctic-light", label: "Arctic Light", desc: "Crisp high-contrast daylight paper with cobalt focus", swatch: "#0284c7" },
+  { id: "midnight-blue", label: "Midnight Blue", desc: "Naval command palette with cyan telemetry highlights", swatch: "#38bdf8" },
+  { id: "oled-black", label: "OLED Black", desc: "True #000000 zero-emission background with violet edge", swatch: "#c084fc" },
+  { id: "emerald", label: "Emerald", desc: "High-assurance hardware-HSM green on carbon", swatch: "#10b981" },
+  { id: "system-adaptive", label: "System Adaptive", desc: "Automatically tracks OS prefers-color-scheme", swatch: "#64748b" }
+];
+let state = { vaults: [], activeId: "", currentPath: "/", entries: [], tab: "explorer", theme: "obsidian-dark" };
+
+async function rpc(cmd, args = {}) {
+  const res = await fetch("/api/rpc", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd, ...args }) });
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || "RPC error");
+  return j.data;
+}
+function showBanner(msg) {
+  const b = document.getElementById("banner");
+  b.style.display = "flex";
+  b.innerHTML = "<span>" + msg + "</span><button class='btn' onclick=\"this.parentElement.style.display='none'\">OK</button>";
+}
+function applyTheme(id) {
+  state.theme = id;
+  document.getElementById("theme-select").value = id;
+  const resolved = id === "system-adaptive" ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "arctic-light" : "obsidian-dark") : id;
+  document.documentElement.setAttribute("data-theme", resolved);
+  renderThemeCards();
+}
+function renderThemeCards() {
+  const el = document.getElementById("theme-cards");
+  el.innerHTML = THEME_SPECS.map(t =>
+    `<button class="theme-card ${state.theme === t.id ? 'active' : ''}" onclick="applyTheme('${t.id}')">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;">
+        <span style="width:10px;height:10px;border-radius:99px;background:${t.swatch};display:inline-block;"></span>${t.label}
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">${t.desc}</div>
+    </button>`
+  ).join("");
+}
+async function refreshVaults() {
+  state.vaults = await rpc("list_vaults");
+  if (!state.activeId && state.vaults.length) state.activeId = state.vaults[0].id;
+  const vl = document.getElementById("vault-list");
+  vl.innerHTML = state.vaults.map(v =>
+    `<button class="nav-item ${v.id === state.activeId ? 'active' : ''}" onclick="selectVault('${v.id}')">
+      <span>${v.name}</span>
+      <span class="badge ${v.unlocked ? 'badge-ok' : 'badge-lock'}">${v.unlocked ? 'OPEN' : 'LOCKED'}</span>
+    </button>`
+  ).join("");
+  updateWorkspaceVisibility();
+  await loadEntries();
+}
+function selectVault(id) { state.activeId = id; state.currentPath = "/"; refreshVaults(); }
+function activeVault() { return state.vaults.find(v => v.id === state.activeId); }
+function switchTab(t) {
+  state.tab = t;
+  ["explorer","integrity","cloud","settings"].forEach(k => {
+    document.getElementById("tab-" + k).classList.toggle("active", k === t);
+  });
+  updateWorkspaceVisibility();
+}
+function updateWorkspaceVisibility() {
+  const v = activeVault();
+  const locked = v && !v.unlocked && (state.tab === "explorer" || state.tab === "integrity");
+  document.getElementById("view-unlock").style.display = locked ? "block" : "none";
+  if (v) {
+    document.getElementById("unlock-title").textContent = "Unlock " + v.name;
+    document.getElementById("unlock-path").textContent = v.path;
+  }
+  ["explorer","integrity","cloud","settings"].forEach(k => {
+    document.getElementById("view-" + k).style.display = (!locked && state.tab === k) ? "block" : "none";
+  });
+}
+async function loadEntries() {
+  const v = activeVault();
+  if (!v || !v.unlocked) { state.entries = []; renderEntries(); return; }
+  const q = document.getElementById("search-input").value.trim();
+  document.getElementById("crumb").textContent = state.currentPath;
+  state.entries = q
+    ? await rpc("search_vault", { id: v.id, query: q, under: state.currentPath })
+    : await rpc("list_entries", { id: v.id, vpath: state.currentPath });
+  renderEntries();
+}
+function renderEntries() {
+  const f = document.getElementById("filter-select").value;
+  const rows = state.entries.filter(e => f === "all" || e.kind === f);
+  const tb = document.getElementById("entry-rows");
+  tb.innerHTML = rows.map(e => `
+    <tr>
+      <td>${e.kind === "directory"
+        ? `<a href="#" style="color:var(--accent);font-weight:600;text-decoration:none" onclick="navigate('${e.path}');return false;">[DIR] ${e.name}</a>`
+        : e.name}</td>
+      <td style="color:var(--muted)">${e.kind}</td>
+      <td class="mono">${e.size != null ? e.size + " B" : "—"}</td>
+      <td style="text-align:right">
+        ${e.kind === "file" ? `<button class="btn" onclick="previewFile('${e.path}')">Decrypt Preview</button>` : ""}
+        <button class="btn btn-danger" onclick="deleteEntry('${e.path}')">Delete</button>
+      </td>
+    </tr>`).join("");
+}
+function navigate(p) { state.currentPath = p; closePreview(); loadEntries(); }
+async function previewFile(vpath) {
+  const v = activeVault();
+  const b64 = await rpc("read_preview_base64", { id: v.id, vpath });
+  const text = decodeURIComponent(escape(atob(b64)));
+  document.getElementById("preview-card").style.display = "block";
+  document.getElementById("preview-title").textContent = "Decrypted In-Memory Preview: " + vpath;
+  document.getElementById("preview-body").textContent = text;
+}
+function closePreview() {
+  document.getElementById("preview-card").style.display = "none";
+  document.getElementById("preview-body").textContent = "";
+}
+async function createFolder() {
+  const name = document.getElementById("mkdir-name").value.trim();
+  if (!name) return;
+  const v = activeVault();
+  const vpath = state.currentPath === "/" ? "/" + name : state.currentPath + "/" + name;
+  await rpc("create_folder", { id: v.id, vpath });
+  document.getElementById("mkdir-name").value = "";
+  await loadEntries();
+}
+async function writeEncryptedFile() {
+  const name = document.getElementById("file-name").value.trim();
+  const body = document.getElementById("file-body").value;
+  if (!name) return;
+  const v = activeVault();
+  const vpath = state.currentPath === "/" ? "/" + name : state.currentPath + "/" + name;
+  const dataB64 = btoa(unescape(encodeURIComponent(body)));
+  await rpc("write_file_base64", { id: v.id, vpath, dataB64 });
+  document.getElementById("file-name").value = "";
+  document.getElementById("file-body").value = "";
+  showBanner("Encrypted with AES-256-GCM + AES-256-SIV and wrote " + vpath);
+  await loadEntries();
+}
+function importDeviceFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64 = String(reader.result).split(",")[1] || "";
+    const v = activeVault();
+    const vpath = state.currentPath === "/" ? "/" + file.name : state.currentPath + "/" + file.name;
+    await rpc("write_file_base64", { id: v.id, vpath, dataB64: base64 });
+    showBanner("Imported & encrypted " + file.name + " (" + file.size + " B) into " + vpath);
+    input.value = "";
+    await loadEntries();
+  };
+  reader.readAsDataURL(file);
+}
+async function deleteEntry(vpath) {
+  const v = activeVault();
+  await rpc("delete_entry", { id: v.id, vpath });
+  await loadEntries();
+}
+async function lockActiveVault() {
+  const v = activeVault();
+  if (!v) return;
+  const res = await rpc("lock_vault", { id: v.id });
+  closePreview();
+  if (res && res.autoSynced) {
+    showBanner(`Vault Closed & Keys Scrubbed · Auto-Synced Delta: ${res.uploaded} uploaded, ${res.deletedRemote} deleted, ${res.unchanged} unchanged (${res.bytesTransferred} B)`);
+  } else {
+    showBanner("Locked vault and scrubbed masterkeys via OPENSSL_cleanse");
+  }
+  await refreshVaults();
+}
+async function unlockActiveVault() {
+  const v = activeVault();
+  const pw = document.getElementById("unlock-pw").value;
+  try {
+    await rpc("unlock_vault", { id: v.id, password: pw });
+    showBanner("Unlocked " + v.name + " (scrypt KEK + RFC 3394 Key Unwrap verified)");
+    await refreshVaults();
+  } catch (e) { showBanner("Unlock failed: " + e.message); }
+}
+async function runIntegrity() {
+  const v = activeVault();
+  const rep = await rpc("check_vault_integrity", { id: v.id });
+  document.getElementById("integrity-out").textContent =
+    `Verified Directories: ${rep.directories} | Verified Files: ${rep.files} | Authenticated Cleartext Bytes: ${rep.bytesVerified} B | Problems: ${rep.problems.length}`;
+}
+async function runSync() {
+  const v = activeVault();
+  const prov = document.getElementById("cloud-provider").value;
+  const s = await rpc("sync_vault_mirror", { id: v.id, mirrorPath: "" });
+  const tree = await rpc("inspect_ciphertext_tree", { id: v.id });
+  document.getElementById("sync-out").textContent =
+    `Target: ${prov} (${s.provider}) | Delta Uploaded: ${s.uploaded} | Deleted Remote: ${s.deletedRemote} | Unchanged: ${s.unchanged} | Delta Transferred: ${s.bytesTransferred} B`;
+  document.getElementById("ct-list").innerHTML = tree.map(o =>
+    `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+      <span>${o.relPath}</span><span style="color:var(--muted)">${o.size} B · sha1:${o.sha1.slice(0,10)}</span>
+    </div>`).join("");
+}
+function openCreateModal() { document.getElementById("create-modal").style.display = "block"; }
+async function createNewVault() {
+  const name = document.getElementById("new-vault-name").value.trim();
+  const pw = document.getElementById("new-vault-pw").value;
+  if (!name || !pw) return;
+  const created = await rpc("create_vault", { name, path: "", password: pw });
+  document.getElementById("new-vault-name").value = "";
+  document.getElementById("new-vault-pw").value = "";
+  document.getElementById("create-modal").style.display = "none";
+  state.activeId = created.id;
+  showBanner("Initialized Format 8 vault: " + created.name);
+  await refreshVaults();
+}
+renderThemeCards();
+refreshVaults();
+</script>
+</body>
+</html>
