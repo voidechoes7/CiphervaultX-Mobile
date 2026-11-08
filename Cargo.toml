@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/ciphervault-core"]
+default-members = ["crates/ciphervault-core"]
+exclude = ["src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/voidechoes7/CiphervaultX"
+rust-version = "1.77"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

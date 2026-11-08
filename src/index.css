@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme="obsidian-dark"] {
+  --bg: #0b0e14;
+  --surface: #121722;
+  --surface-2: #1a2130;
+  --border: #252f42;
+  --fg: #f1f5f9;
+  --muted: #94a3b8;
+  --accent: #6366f1;
+  --accent-fg: #ffffff;
+  --danger: #ef4444;
+  --success: #10b981;
+}
+
+[data-theme="arctic-light"] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --border: #e2e8f0;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  --success: #059669;
+}
+
+[data-theme="midnight-blue"] {
+  --bg: #06101e;
+  --surface: #0b1b32;
+  --surface-2: #122847;
+  --border: #1e3a5f;
+  --fg: #e2e8f0;
+  --muted: #7dd3fc;
+  --accent: #0ea5e9;
+  --accent-fg: #04101f;
+  --danger: #f87171;
+  --success: #34d399;
+}
+
+[data-theme="oled-black"] {
+  --bg: #000000;
+  --surface: #09090b;
+  --surface-2: #121216;
+  --border: #27272a;
+  --fg: #fafafa;
+  --muted: #a1a1aa;
+  --accent: #a855f7;
+  --accent-fg: #ffffff;
+  --danger: #f43f5e;
+  --success: #22c55e;
+}
+
+[data-theme="emerald"] {
+  --bg: #04130e;
+  --surface: #082018;
+  --surface-2: #0e2e23;
+  --border: #164e3a;
+  --fg: #ecfdf5;
+  --muted: #6ee7b7;
+  --accent: #10b981;
+  --accent-fg: #022c22;
+  --danger: #fb7185;
+  --success: #34d399;
+}
