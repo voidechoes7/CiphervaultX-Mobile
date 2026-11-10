@@ -9,7 +9,10 @@
 //! RFC 3394 unwrap carries a 64-bit integrity check, so a wrong password is detected
 //! deterministically. The KEK only exists transiently in zeroizing memory.
 
-use super::ffi::{aes256_unwrap, aes256_wrap, cleanse, ct_eq, hmac_sha256, nfc_normalize, scrypt_derive, SecretBuf};
+use super::ffi::{
+    aes256_unwrap, aes256_wrap, cleanse, ct_eq, hmac_sha256, nfc_normalize, scrypt_derive, scrypt_pq_hybrid_derive,
+    SecretBuf,
+};
 use super::keys::{random_bytes, Masterkey, KEY_LEN};
 use crate::encoding::{b64_decode_std, b64_encode_std};
 use crate::error::{Result, VaultError};
@@ -58,12 +61,26 @@ pub struct MasterkeyFile {
     pub primary_master_key: String,
     pub hmac_master_key: String,
     pub version_mac: String,
+    /// Optional KDF mode (`None` = standard Cryptomator `scrypt`, `Some("scrypt-pq-sha3-512")` = Post-Quantum Hybrid).
+    pub kdf_mode: Option<String>,
 }
 
-fn derive_kek(password: &str, salt: &[u8], params: KdfParams) -> Result<SecretBuf<[u8; KEY_LEN]>> {
+fn derive_kek(
+    password: &str,
+    salt: &[u8],
+    params: KdfParams,
+    kdf_mode: Option<&str>,
+    pq_seed: Option<&[u8]>,
+) -> Result<SecretBuf<[u8; KEY_LEN]>> {
     let mut normalized = nfc_normalize(password).into_bytes();
     let mut kek = SecretBuf::new([0u8; KEY_LEN]);
-    let res = scrypt_derive(&normalized, salt, params.log_n, params.r, params.p, &mut kek[..]);
+    let res = match kdf_mode {
+        Some("scrypt-pq-sha3-512") => {
+            scrypt_pq_hybrid_derive(&normalized, salt, params.log_n, params.r, params.p, pq_seed, &mut kek)
+        }
+        None | Some("scrypt") => scrypt_derive(&normalized, salt, params.log_n, params.r, params.p, &mut kek[..]),
+        Some(other) => Err(VaultError::Unsupported(format!("unsupported kdfMode: {other}"))),
+    };
     cleanse(&mut normalized);
     res?;
     Ok(kek)
@@ -76,11 +93,31 @@ fn version_mac(mac_key: &[u8], version: u32) -> [u8; 32] {
 impl MasterkeyFile {
     /// Wrap `key` under a password. A fresh 32-byte salt is drawn from the OS CSPRNG.
     pub fn wrap(key: &Masterkey, password: &str, params: KdfParams) -> Result<Self> {
+        Self::wrap_with_mode(key, password, params, None, None)
+    }
+
+    /// Wrap `key` under Post-Quantum Hybrid mode (`scrypt-pq-sha3-512`) with an optional 512-bit recovery seed.
+    pub fn wrap_pq_hybrid(
+        key: &Masterkey,
+        password: &str,
+        params: KdfParams,
+        pq_seed: Option<&[u8]>,
+    ) -> Result<Self> {
+        Self::wrap_with_mode(key, password, params, Some("scrypt-pq-sha3-512"), pq_seed)
+    }
+
+    fn wrap_with_mode(
+        key: &Masterkey,
+        password: &str,
+        params: KdfParams,
+        kdf_mode: Option<&str>,
+        pq_seed: Option<&[u8]>,
+    ) -> Result<Self> {
         if password.is_empty() {
             return Err(VaultError::InvalidName("password must not be empty".into()));
         }
         let salt: [u8; 32] = random_bytes();
-        let kek = derive_kek(password, &salt, params)?;
+        let kek = derive_kek(password, &salt, params, kdf_mode, pq_seed)?;
         let wenc = aes256_wrap(&kek, key.enc_key())?;
         let wmac = aes256_wrap(&kek, key.mac_key())?;
         let vmac = version_mac(key.mac_key(), MASTERKEY_FILE_VERSION);
@@ -93,6 +130,7 @@ impl MasterkeyFile {
             primary_master_key: b64_encode_std(&wenc),
             hmac_master_key: b64_encode_std(&wmac),
             version_mac: b64_encode_std(&vmac),
+            kdf_mode: kdf_mode.map(|s| s.to_string()),
         })
     }
 
@@ -108,6 +146,11 @@ impl MasterkeyFile {
 
     /// Derive the KEK from `password` and unwrap the masterkey.
     pub fn unlock(&self, password: &str) -> Result<Masterkey> {
+        self.unlock_with_pq_seed(password, None)
+    }
+
+    /// Derive the KEK from `password` + optional post-quantum seed and unwrap the masterkey.
+    pub fn unlock_with_pq_seed(&self, password: &str, pq_seed: Option<&[u8]>) -> Result<Masterkey> {
         let params = self.kdf_params()?;
         let salt = b64_decode_std(&self.scrypt_salt).map_err(|_| VaultError::Malformed("salt encoding".into()))?;
         let wenc = b64_decode_std(&self.primary_master_key).map_err(|_| VaultError::Malformed("key encoding".into()))?;
@@ -116,7 +159,7 @@ impl MasterkeyFile {
         if wenc.len() != KEY_LEN + 8 || wmac.len() != KEY_LEN + 8 {
             return Err(VaultError::Malformed("wrapped key length".into()));
         }
-        let kek = derive_kek(password, &salt, params)?;
+        let kek = derive_kek(password, &salt, params, self.kdf_mode.as_deref(), pq_seed)?;
         let mut enc = SecretBuf::new([0u8; KEY_LEN]);
         let mut mac = SecretBuf::new([0u8; KEY_LEN]);
         aes256_unwrap(&kek, &wenc, &mut enc)?;
@@ -137,6 +180,9 @@ impl MasterkeyFile {
         s.push_str(&format!("  \"scryptBlockSize\": {},\n", self.scrypt_block_size));
         if self.scrypt_parallelism != 1 {
             s.push_str(&format!("  \"scryptParallelism\": {},\n", self.scrypt_parallelism));
+        }
+        if let Some(ref mode) = self.kdf_mode {
+            s.push_str(&format!("  \"kdfMode\": {},\n", escape_json_str(mode)));
         }
         s.push_str(&format!("  \"primaryMasterKey\": {},\n", escape_json_str(&self.primary_master_key)));
         s.push_str(&format!("  \"hmacMasterKey\": {},\n", escape_json_str(&self.hmac_master_key)));
@@ -167,6 +213,7 @@ impl MasterkeyFile {
             primary_master_key: req_str("primaryMasterKey")?,
             hmac_master_key: req_str("hmacMasterKey")?,
             version_mac: req_str("versionMac")?,
+            kdf_mode: m.get("kdfMode").and_then(|v| v.as_str()).map(|s| s.to_string()),
         })
     }
 }
@@ -182,6 +229,22 @@ mod tests {
         let k = Masterkey::generate();
         let f = MasterkeyFile::wrap(&k, "correct horse battery staple", P).unwrap();
         let k2 = f.unlock("correct horse battery staple").unwrap();
+        assert_eq!(k.enc_key(), k2.enc_key());
+        assert_eq!(k.mac_key(), k2.mac_key());
+    }
+
+    #[test]
+    fn pq_hybrid_wrap_and_seed_binding() {
+        let k = Masterkey::generate();
+        let seed = b"quantum-fortress-512-bit-hardware-seed";
+        let f = MasterkeyFile::wrap_pq_hybrid(&k, "passphrase-alpha", P, Some(seed)).unwrap();
+        assert_eq!(f.kdf_mode.as_deref(), Some("scrypt-pq-sha3-512"));
+
+        // Unlocking without the PQ seed must fail even with the right password
+        assert!(matches!(f.unlock("passphrase-alpha"), Err(VaultError::InvalidPassword)));
+
+        // Unlocking with both password and PQ seed succeeds
+        let k2 = f.unlock_with_pq_seed("passphrase-alpha", Some(seed)).unwrap();
         assert_eq!(k.enc_key(), k2.enc_key());
         assert_eq!(k.mac_key(), k2.mac_key());
     }
