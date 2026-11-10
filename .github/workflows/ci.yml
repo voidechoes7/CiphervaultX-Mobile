@@ -1,0 +1,60 @@
+name: CipherVault-X CI & Android APK Release
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core-security-suite:
+    name: Rust Core Cryptography & Delta Sync Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install OpenSSL & ICU development headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libicu-dev pkg-config
+      - name: Run 62 ciphervault-core unit, tamper, streaming & delta-sync tests
+        run: cargo test -p ciphervault-core -- --nocapture
+
+  android-apk-release:
+    name: Build & Publish Installable Android APK (v0.1.0)
+    needs: core-security-suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build Signed Installable Android APK
+        working-directory: android
+        run: |
+          gradle assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../CipherVault-X-v0.1.0-android.apk
+          ls -lh ../CipherVault-X-v0.1.0-android.apk
+      - name: Upload Android APK Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CipherVault-X-Android-APK
+          path: CipherVault-X-v0.1.0-android.apk
+      - name: Publish Direct Download Release APK on GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete v0.1.0 --yes --cleanup-tag || true
+          gh release create v0.1.0 CipherVault-X-v0.1.0-android.apk \
+            --title "CipherVault-X v0.1.0 — Android APK (Cryptomator Format 8 / AES-256-GCM)" \
+            --notes "Installable Android APK for CipherVault-X with Cyberpunk Tech Logo, 256-bit AES-GCM 68-byte headers + 32 KiB streaming chunks, RFC 3394 AES-256 Key Wrap, SIV encrypted filenames (.c9r), and Close-Vault Auto-Delta Cloud Sync."
