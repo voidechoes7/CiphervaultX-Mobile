@@ -34,13 +34,13 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "17"
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Build Signed Installable Android APK
+      - name: Accept Android SDK Licenses & Build Signed APK
         working-directory: android
         run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
           gradle assembleRelease --no-daemon --stacktrace
           cp app/build/outputs/apk/release/app-release.apk ../CipherVault-X-v0.1.0-android.apk
           ls -lh ../CipherVault-X-v0.1.0-android.apk
@@ -58,3 +58,9 @@ jobs:
             --target "${{ github.sha }}" \
             --title "CipherVault-X v0.1.0 — Android APK (Cryptomator Format 8 / AES-256-GCM)" \
             --notes "Installable Android APK for CipherVault-X with Cyberpunk Tech Logo, 256-bit AES-GCM 68-byte headers + 32 KiB streaming chunks, RFC 3394 AES-256 Key Wrap, SIV encrypted filenames (.c9r), and Close-Vault Auto-Delta Cloud Sync."
+          mkdir -p apk-dist
+          cp CipherVault-X-v0.1.0-android.apk apk-dist/CipherVault-X-v0.1.0-android.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f apk-dist/CipherVault-X-v0.1.0-android.apk
+          git diff --cached --quiet || (git commit -m "chore(release): publish compiled CipherVault-X-v0.1.0-android.apk binary [skip ci]" && git push origin HEAD:release-apk)
