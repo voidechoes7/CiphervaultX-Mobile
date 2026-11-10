@@ -136,19 +136,50 @@ extern "C" {
     ) -> *mut c_uchar;
 }
 
-#[link(name = "icuuc")]
 extern "C" {
-    #[link_name = "unorm2_getNFCInstance_72"]
-    fn unorm2_getNFCInstance(pErrorCode: *mut i32) -> *const UNormalizer2;
-    #[link_name = "unorm2_normalize_72"]
-    fn unorm2_normalize(
-        norm2: *const UNormalizer2,
-        src: *const u16,
-        length: i32,
-        dest: *mut u16,
-        capacity: i32,
-        pErrorCode: *mut i32,
-    ) -> i32;
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+const RTLD_DEFAULT: *mut c_void = ptr::null_mut();
+
+#[link(name = "icuuc")]
+extern "C" {}
+
+type Unorm2GetNfcInstanceFn = unsafe extern "C" fn(p_error_code: *mut i32) -> *const UNormalizer2;
+type Unorm2NormalizeFn = unsafe extern "C" fn(
+    norm2: *const UNormalizer2,
+    src: *const u16,
+    length: i32,
+    dest: *mut u16,
+    capacity: i32,
+    p_error_code: *mut i32,
+) -> i32;
+
+fn resolve_icu_fns() -> Option<(Unorm2GetNfcInstanceFn, Unorm2NormalizeFn)> {
+    const CANDIDATES: &[(&[u8], &[u8])] = &[
+        (b"unorm2_getNFCInstance\0", b"unorm2_normalize\0"),
+        (b"unorm2_getNFCInstance_76\0", b"unorm2_normalize_76\0"),
+        (b"unorm2_getNFCInstance_75\0", b"unorm2_normalize_75\0"),
+        (b"unorm2_getNFCInstance_74\0", b"unorm2_normalize_74\0"),
+        (b"unorm2_getNFCInstance_73\0", b"unorm2_normalize_73\0"),
+        (b"unorm2_getNFCInstance_72\0", b"unorm2_normalize_72\0"),
+        (b"unorm2_getNFCInstance_71\0", b"unorm2_normalize_71\0"),
+        (b"unorm2_getNFCInstance_70\0", b"unorm2_normalize_70\0"),
+        (b"unorm2_getNFCInstance_67\0", b"unorm2_normalize_67\0"),
+        (b"unorm2_getNFCInstance_66\0", b"unorm2_normalize_66\0"),
+    ];
+    for (get_sym, norm_sym) in CANDIDATES {
+        unsafe {
+            let p_get = dlsym(RTLD_DEFAULT, get_sym.as_ptr() as *const c_char);
+            let p_norm = dlsym(RTLD_DEFAULT, norm_sym.as_ptr() as *const c_char);
+            if !p_get.is_null() && !p_norm.is_null() {
+                let f_get: Unorm2GetNfcInstanceFn = std::mem::transmute(p_get);
+                let f_norm: Unorm2NormalizeFn = std::mem::transmute(p_norm);
+                return Some((f_get, f_norm));
+            }
+        }
+    }
+    None
 }
 
 struct CipherCtx(*mut EvpCipherCtx);
@@ -508,37 +539,96 @@ pub fn sha1_digest(data: &[u8]) -> [u8; 20] {
     out
 }
 
-/// Unicode NFC normalization via ICU `unorm2_getNFCInstance`.
+/// Unicode NFC normalization via ICU `unorm2_getNFCInstance` (resolved dynamically across ICU versions)
+/// with a pure-Rust canonical composition fallback for common combining marks.
 pub fn nfc_normalize(s: &str) -> String {
     if s.is_ascii() {
         return s.to_string();
     }
-    let utf16: Vec<u16> = s.encode_utf16().collect();
-    let mut err: i32 = 0;
-    let norm = unsafe { unorm2_getNFCInstance(&mut err) };
-    if err > 0 || norm.is_null() {
-        return s.to_string();
+    if let Some((get_nfc, normalize)) = resolve_icu_fns() {
+        let utf16: Vec<u16> = s.encode_utf16().collect();
+        let mut err: i32 = 0;
+        let norm = unsafe { get_nfc(&mut err) };
+        if err <= 0 && !norm.is_null() {
+            let mut cap = (utf16.len() as i32).saturating_add(16);
+            let mut dst = vec![0u16; cap as usize];
+            let len = unsafe {
+                normalize(norm, utf16.as_ptr(), utf16.len() as i32, dst.as_mut_ptr(), cap, &mut err)
+            };
+            if err == 15 {
+                err = 0;
+                cap = len + 4;
+                dst.resize(cap as usize, 0);
+                let len2 = unsafe {
+                    normalize(norm, utf16.as_ptr(), utf16.len() as i32, dst.as_mut_ptr(), cap, &mut err)
+                };
+                dst.truncate(len2.max(0) as usize);
+                if let Ok(out) = String::from_utf16(&dst) {
+                    return out;
+                }
+            } else if err <= 0 && len >= 0 {
+                dst.truncate(len as usize);
+                if let Ok(out) = String::from_utf16(&dst) {
+                    return out;
+                }
+            }
+        }
     }
-    let mut cap = (utf16.len() as i32).saturating_add(16);
-    let mut dst = vec![0u16; cap as usize];
-    let len = unsafe {
-        unorm2_normalize(norm, utf16.as_ptr(), utf16.len() as i32, dst.as_mut_ptr(), cap, &mut err)
-    };
-    if err == 15 {
-        // U_BUFFER_OVERFLOW_ERROR
-        err = 0;
-        cap = len + 4;
-        dst.resize(cap as usize, 0);
-        let len2 = unsafe {
-            unorm2_normalize(norm, utf16.as_ptr(), utf16.len() as i32, dst.as_mut_ptr(), cap, &mut err)
-        };
-        dst.truncate(len2.max(0) as usize);
-    } else if err <= 0 && len >= 0 {
-        dst.truncate(len as usize);
-    } else {
-        return s.to_string();
+    fallback_nfc_compose(s)
+}
+
+fn fallback_nfc_compose(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if let Some(&next) = chars.peek() {
+            if let Some(composed) = compose_pair(c, next) {
+                chars.next();
+                out.push(composed);
+                continue;
+            }
+        }
+        out.push(c);
     }
-    String::from_utf16(&dst).unwrap_or_else(|_| s.to_string())
+    out
+}
+
+fn compose_pair(base: char, mark: char) -> Option<char> {
+    match (base, mark) {
+        ('a', '\u{0300}') => Some('à'),
+        ('a', '\u{0301}') => Some('á'),
+        ('a', '\u{0302}') => Some('â'),
+        ('a', '\u{0303}') => Some('ã'),
+        ('a', '\u{0308}') => Some('ä'),
+        ('a', '\u{030a}') => Some('å'),
+        ('e', '\u{0300}') => Some('è'),
+        ('e', '\u{0301}') => Some('é'),
+        ('e', '\u{0302}') => Some('ê'),
+        ('e', '\u{0308}') => Some('ë'),
+        ('i', '\u{0300}') => Some('ì'),
+        ('i', '\u{0301}') => Some('í'),
+        ('i', '\u{0302}') => Some('î'),
+        ('i', '\u{0308}') => Some('ï'),
+        ('n', '\u{0303}') => Some('ñ'),
+        ('o', '\u{0300}') => Some('ò'),
+        ('o', '\u{0301}') => Some('ó'),
+        ('o', '\u{0302}') => Some('ô'),
+        ('o', '\u{0303}') => Some('õ'),
+        ('o', '\u{0308}') => Some('ö'),
+        ('u', '\u{0300}') => Some('ù'),
+        ('u', '\u{0301}') => Some('ú'),
+        ('u', '\u{0302}') => Some('û'),
+        ('u', '\u{0308}') => Some('ü'),
+        ('c', '\u{0327}') => Some('ç'),
+        ('A', '\u{0300}') => Some('À'),
+        ('A', '\u{0301}') => Some('Á'),
+        ('A', '\u{0308}') => Some('Ä'),
+        ('E', '\u{0301}') => Some('É'),
+        ('N', '\u{0303}') => Some('Ñ'),
+        ('O', '\u{0308}') => Some('Ö'),
+        ('U', '\u{0308}') => Some('Ü'),
+        _ => None,
+    }
 }
 
 /// Wrapper that cleanses its contents via `OPENSSL_cleanse` on drop.
