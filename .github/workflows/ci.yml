@@ -27,7 +27,6 @@ jobs:
 
   android-apk-release:
     name: Build & Publish Installable Android APK (v0.1.0)
-    needs: core-security-suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +41,7 @@ jobs:
       - name: Build Signed Installable Android APK
         working-directory: android
         run: |
-          gradle assembleRelease --no-daemon
+          gradle assembleRelease --no-daemon --stacktrace
           cp app/build/outputs/apk/release/app-release.apk ../CipherVault-X-v0.1.0-android.apk
           ls -lh ../CipherVault-X-v0.1.0-android.apk
       - name: Upload Android APK Build Artifact
@@ -56,5 +55,6 @@ jobs:
         run: |
           gh release delete v0.1.0 --yes --cleanup-tag || true
           gh release create v0.1.0 CipherVault-X-v0.1.0-android.apk \
+            --target "${{ github.sha }}" \
             --title "CipherVault-X v0.1.0 — Android APK (Cryptomator Format 8 / AES-256-GCM)" \
             --notes "Installable Android APK for CipherVault-X with Cyberpunk Tech Logo, 256-bit AES-GCM 68-byte headers + 32 KiB streaming chunks, RFC 3394 AES-256 Key Wrap, SIV encrypted filenames (.c9r), and Close-Vault Auto-Delta Cloud Sync."
