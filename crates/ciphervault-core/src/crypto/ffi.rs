@@ -117,6 +117,7 @@ extern "C" {
 
     fn EVP_sha1() -> *const EvpMd;
     fn EVP_sha256() -> *const EvpMd;
+    fn EVP_sha3_512() -> *const EvpMd;
     fn EVP_Digest(
         data: *const c_void,
         count: usize,
@@ -537,6 +538,55 @@ pub fn sha1_digest(data: &[u8]) -> [u8; 20] {
     };
     assert!(rc == 1 && len == 20, "SHA1 failed");
     out
+}
+
+/// FIPS 202 SHA3-512 digest (64 bytes) via OpenSSL `EVP_Digest(EVP_sha3_512())`.
+pub fn sha3_512_digest(data: &[u8]) -> [u8; 64] {
+    let mut out = [0u8; 64];
+    let mut len: c_uint = 0;
+    let rc = unsafe {
+        EVP_Digest(
+            data.as_ptr() as *const c_void,
+            data.len(),
+            out.as_mut_ptr(),
+            &mut len,
+            EVP_sha3_512(),
+            ptr::null_mut(),
+        )
+    };
+    assert!(rc == 1 && len == 64, "SHA3-512 failed");
+    out
+}
+
+/// Post-Quantum Hybrid Key-Encryption Key (KEK) combiner (`scrypt-pq-sha3-512`).
+///
+/// Combines memory-hard `scrypt` output with FIPS 202 `SHA3-512` sponge domain separation
+/// (`CipherVault-X-PQ-Hybrid-v1`) and an optional high-entropy post-quantum recovery key / seed.
+pub fn scrypt_pq_hybrid_derive(
+    password: &[u8],
+    salt: &[u8],
+    log_n: u8,
+    r: u32,
+    p: u32,
+    pq_seed: Option<&[u8]>,
+    out: &mut [u8; 32],
+) -> Result<()> {
+    let mut base_kek = SecretBuf::new([0u8; 32]);
+    scrypt_derive(password, salt, log_n, r, p, &mut base_kek[..])?;
+    let mut sponge_in = Vec::with_capacity(64 + salt.len() + pq_seed.map(|s| s.len()).unwrap_or(0));
+    sponge_in.extend_from_slice(b"CipherVault-X-PQ-Hybrid-v1:");
+    sponge_in.extend_from_slice(&base_kek[..]);
+    sponge_in.extend_from_slice(salt);
+    if let Some(seed) = pq_seed {
+        sponge_in.extend_from_slice(b":PQSEED:");
+        sponge_in.extend_from_slice(seed);
+    }
+    let mut digest = sha3_512_digest(&sponge_in);
+    cleanse(&mut sponge_in);
+    let combined = hmac_sha256(&base_kek[..], &digest);
+    cleanse(&mut digest);
+    out.copy_from_slice(&combined);
+    Ok(())
 }
 
 /// Unicode NFC normalization via ICU `unorm2_getNFCInstance` (resolved dynamically across ICU versions)
