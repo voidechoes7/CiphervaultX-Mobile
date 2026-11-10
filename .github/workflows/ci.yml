@@ -22,11 +22,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install OpenSSL & ICU development headers
         run: sudo apt-get update && sudo apt-get install -y libssl-dev libicu-dev pkg-config
-      - name: Run 62 ciphervault-core unit, tamper, streaming & delta-sync tests
+      - name: Run 63 ciphervault-core unit, PQ-hybrid, tamper, streaming & delta-sync tests
         run: cargo test -p ciphervault-core -- --nocapture
 
   android-apk-release:
-    name: Build & Publish Installable Android APK (v0.1.0)
+    name: Build & Publish Installable Android APK (v0.2.0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,25 +42,27 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
           gradle assembleRelease --no-daemon --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk ../CipherVault-X-v0.2.0-android.apk
           cp app/build/outputs/apk/release/app-release.apk ../CipherVault-X-v0.1.0-android.apk
-          ls -lh ../CipherVault-X-v0.1.0-android.apk
+          ls -lh ../CipherVault-X-v0.2.0-android.apk
       - name: Upload Android APK Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CipherVault-X-Android-APK
-          path: CipherVault-X-v0.1.0-android.apk
+          name: CipherVault-X-Android-APK-v0.2.0
+          path: CipherVault-X-v0.2.0-android.apk
       - name: Publish Direct Download Release APK on GitHub
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete v0.1.0 --yes --cleanup-tag || true
-          gh release create v0.1.0 CipherVault-X-v0.1.0-android.apk \
+          gh release delete v0.2.0 --yes --cleanup-tag || true
+          gh release create v0.2.0 CipherVault-X-v0.2.0-android.apk \
             --target "${{ github.sha }}" \
-            --title "CipherVault-X v0.1.0 — Android APK (Cryptomator Format 8 / AES-256-GCM)" \
-            --notes "Installable Android APK for CipherVault-X with Cyberpunk Tech Logo, 256-bit AES-GCM 68-byte headers + 32 KiB streaming chunks, RFC 3394 AES-256 Key Wrap, SIV encrypted filenames (.c9r), and Close-Vault Auto-Delta Cloud Sync."
+            --title "CipherVault-X v0.2.0 — Quantum-Hardened Android APK (RFC 7914 scrypt + PQ Hybrid + SIV_GCM)" \
+            --notes "Quantum-Hardened Android APK (v0.2.0) featuring RFC 7914 memory-hard scrypt + Post-Quantum SHA-512 Hybrid KDF, RFC 5297 AES-256-SIV encrypted filenames, 68B + 32KiB AES-256-GCM streaming chunks, FLAG_SECURE anti-screenshot protection, persistent multi-vault registry, Plaintext Leak Firewall, and 14-Day Pro Trial UI."
           mkdir -p apk-dist
-          cp CipherVault-X-v0.1.0-android.apk apk-dist/CipherVault-X-v0.1.0-android.apk
+          cp CipherVault-X-v0.2.0-android.apk apk-dist/CipherVault-X-v0.2.0-android.apk
+          cp CipherVault-X-v0.2.0-android.apk apk-dist/CipherVault-X-v0.1.0-android.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f apk-dist/CipherVault-X-v0.1.0-android.apk
-          git diff --cached --quiet || (git commit -m "chore(release): publish compiled CipherVault-X-v0.1.0-android.apk binary [skip ci]" && git push origin HEAD:release-apk)
+          git add -f apk-dist/CipherVault-X-v0.2.0-android.apk apk-dist/CipherVault-X-v0.1.0-android.apk
+          git diff --cached --quiet || (git commit -m "chore(release): publish compiled CipherVault-X-v0.2.0-android.apk binary [skip ci]" && git push origin HEAD:release-apk)
