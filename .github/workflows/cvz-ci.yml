@@ -12,6 +12,9 @@ on:
       - ".github/workflows/cvz-ci.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -66,15 +69,39 @@ jobs:
         with:
           workspaces: ciphervaultx
       - name: Format check
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check 2>&1 | tee /tmp/ci-step.log
       - name: Clippy (-D warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/ci-step.log
       - name: Test cvz-core (--all-features, dev)
-        run: cargo test -p cvz-core --all-features
+        run: cargo test -p cvz-core --all-features 2>&1 | tee /tmp/ci-step.log
       - name: Test cvz-core (--all-features, release)
-        run: cargo test -p cvz-core --release --all-features
+        run: cargo test -p cvz-core --release --all-features 2>&1 | tee /tmp/ci-step.log
       - name: Build workspace
-        run: cargo build --workspace
+        run: cargo build --workspace 2>&1 | tee /tmp/ci-step.log
+      - name: Report failure diagnostics
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          log = ""
+          if os.path.exists("/tmp/ci-step.log"):
+              lines = open("/tmp/ci-step.log", errors="replace").read().splitlines()
+              log = "\n".join(lines[-80:])
+          body = f"### CI failure: rust-linux\n```\n{log}\n```"
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          urllib.request.urlopen(req).read()
+          PY
 
   rust-windows:
     name: Windows (Build, Tests, NSIS .exe Bundle)
@@ -96,17 +123,45 @@ jobs:
         with:
           workspaces: ciphervaultx
       - name: Build workspace
-        run: cargo build --workspace
+        shell: bash
+        run: cargo build --workspace 2>&1 | tee ci-win.log
       - name: Test cvz-core (--all-features)
-        run: cargo test -p cvz-core --all-features
+        shell: bash
+        run: cargo test -p cvz-core --all-features 2>&1 | tee ci-win.log
       - name: Build Windows NSIS installer (.exe)
-        run: npx tauri build --bundles nsis
+        shell: bash
+        run: npx tauri build --bundles nsis 2>&1 | tee ci-win.log
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Windows-exe
           path: ciphervaultx/target/release/bundle/nsis/*.exe
           if-no-files-found: error
+      - name: Report failure diagnostics
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          log = ""
+          if os.path.exists("ci-win.log"):
+              lines = open("ci-win.log", errors="replace").read().splitlines()
+              log = "\n".join(lines[-80:])
+          body = f"### CI failure: rust-windows\n```\n{log}\n```"
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          urllib.request.urlopen(req).read()
+          PY
 
   android-apk:
     name: Android (Core Cross-Compile & Debug APK)
@@ -123,11 +178,17 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - name: Install Android NDK & build tools
+      - name: Configure pre-installed Android SDK & NDK
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
-          echo "NDK_HOME=${ANDROID_HOME}/ndk/26.3.11579264" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          NDK_DIR=$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$NDK_DIR" ]; then
+            yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" "ndk;26.3.11579264"
+            NDK_DIR="$SDK/ndk/26.3.11579264"
+          fi
+          echo "NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
@@ -137,11 +198,35 @@ jobs:
           npm run build
       - name: Initialize Tauri Android project & build debug APK
         run: |
-          npx tauri android init --ci
-          npx tauri android build --apk --debug --target aarch64
+          npx tauri android init --ci 2>&1 | tee /tmp/ci-android.log
+          npx tauri android build --apk --debug --target aarch64 2>&1 | tee -a /tmp/ci-android.log
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Android-apk
           path: ciphervaultx/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+      - name: Report failure diagnostics
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          log = ""
+          if os.path.exists("/tmp/ci-android.log"):
+              lines = open("/tmp/ci-android.log", errors="replace").read().splitlines()
+              log = "\n".join(lines[-80:])
+          body = f"### CI failure: android-apk\n```\n{log}\n```"
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          urllib.request.urlopen(req).read()
+          PY
