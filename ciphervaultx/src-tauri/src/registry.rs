@@ -44,7 +44,7 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
     serde_json::from_slice(&raw).map_err(|e| e.to_string())
 }
 
-pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+pub fn write_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
     cvz_core::fsio::atomic_write_bytes(path, &bytes).map_err(|e| e.to_string())
 }
@@ -58,7 +58,7 @@ pub fn load() -> Vec<KnownVault> {
 
 pub fn save(vaults: &[KnownVault]) -> Result<(), String> {
     let dir = cfg_dir()?;
-    write_json(&dir.join(VAULTS_FILE), &vaults)
+    write_json(&dir.join(VAULTS_FILE), vaults)
 }
 
 pub fn add(name: String, path: String) -> Result<KnownVault, String> {

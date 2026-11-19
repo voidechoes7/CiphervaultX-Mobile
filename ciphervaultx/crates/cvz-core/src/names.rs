@@ -55,7 +55,7 @@ pub fn encrypt_name(
     let mut cipher =
         Aes256Siv::new_from_slice(name_siv_key.as_bytes()).map_err(|_| VaultError::Integrity)?;
     let ct = cipher
-        .encrypt(&[parent_dir_id.as_bytes()], normalized.as_bytes())
+        .encrypt([parent_dir_id.as_bytes()], normalized.as_bytes())
         .map_err(|_| VaultError::Integrity)?;
     let ext = if is_dir { DIR_EXT } else { FILE_EXT };
     let encoded = format!("{}{}", URL_SAFE_NO_PAD.encode(ct), ext);
@@ -86,7 +86,7 @@ pub fn decrypt_name(
     let mut cipher =
         Aes256Siv::new_from_slice(name_siv_key.as_bytes()).map_err(|_| VaultError::Integrity)?;
     let plain = cipher
-        .decrypt(&[parent_dir_id.as_bytes()], &ct)
+        .decrypt([parent_dir_id.as_bytes()], &ct)
         .map_err(|_| VaultError::Integrity)?;
     let name = String::from_utf8(plain).map_err(|_| VaultError::Integrity)?;
     let normalized = validate_and_normalize_name(&name).map_err(|_| VaultError::Integrity)?;
