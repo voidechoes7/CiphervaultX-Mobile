@@ -98,8 +98,8 @@ pub fn decrypt_name(
 /// enc = BASE32_NOPAD(digest[0..20])
 /// path = vaultRoot / "d" / enc[0..2] / enc[2..32]
 pub fn dir_storage_path(vault_root: &Path, dir_hash_key: &Key32, dir_id: &str) -> Result<PathBuf> {
-    let mut mac =
-        HmacSha256::new_from_slice(dir_hash_key.as_bytes()).map_err(|_| VaultError::Integrity)?;
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(dir_hash_key.as_bytes())
+        .map_err(|_| VaultError::Integrity)?;
     mac.update(DIR_ID_HMAC_PREFIX);
     mac.update(dir_id.as_bytes());
     let digest = mac.finalize().into_bytes();

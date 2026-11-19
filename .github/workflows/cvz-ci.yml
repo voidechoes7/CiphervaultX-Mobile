@@ -69,15 +69,15 @@ jobs:
         with:
           workspaces: ciphervaultx
       - name: Format check
-        run: cargo fmt --all -- --check 2>&1 | tee /tmp/ci-step.log
+        run: set -o pipefail; cargo fmt --all -- --check 2>&1 | tee /tmp/ci-step.log
       - name: Clippy (-D warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/ci-step.log
+        run: set -o pipefail; cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/ci-step.log
       - name: Test cvz-core (--all-features, dev)
-        run: cargo test -p cvz-core --all-features 2>&1 | tee /tmp/ci-step.log
+        run: set -o pipefail; cargo test -p cvz-core --all-features 2>&1 | tee /tmp/ci-step.log
       - name: Test cvz-core (--all-features, release)
-        run: cargo test -p cvz-core --release --all-features 2>&1 | tee /tmp/ci-step.log
+        run: set -o pipefail; cargo test -p cvz-core --release --all-features 2>&1 | tee /tmp/ci-step.log
       - name: Build workspace
-        run: cargo build --workspace 2>&1 | tee /tmp/ci-step.log
+        run: set -o pipefail; cargo build --workspace 2>&1 | tee /tmp/ci-step.log
       - name: Report failure diagnostics
         if: failure()
         env:
@@ -124,13 +124,13 @@ jobs:
           workspaces: ciphervaultx
       - name: Build workspace
         shell: bash
-        run: cargo build --workspace 2>&1 | tee ci-win.log
+        run: set -o pipefail; cargo build --workspace 2>&1 | tee ci-win.log
       - name: Test cvz-core (--all-features)
         shell: bash
-        run: cargo test -p cvz-core --all-features 2>&1 | tee ci-win.log
+        run: set -o pipefail; cargo test -p cvz-core --all-features 2>&1 | tee ci-win.log
       - name: Build Windows NSIS installer (.exe)
         shell: bash
-        run: npx tauri build --bundles nsis 2>&1 | tee ci-win.log
+        run: set -o pipefail; npx tauri build --bundles nsis 2>&1 | tee ci-win.log
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
         with:
@@ -198,6 +198,7 @@ jobs:
           npm run build
       - name: Initialize Tauri Android project & build debug APK
         run: |
+          set -o pipefail
           npx tauri android init --ci 2>&1 | tee /tmp/ci-android.log
           npx tauri android build --apk --debug --target aarch64 2>&1 | tee -a /tmp/ci-android.log
       - name: Upload Android APK
