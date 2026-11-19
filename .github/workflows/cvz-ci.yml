@@ -130,12 +130,17 @@ jobs:
         run: set -o pipefail; cargo test -p cvz-core --all-features 2>&1 | tee ci-win.log
       - name: Build Windows NSIS installer (.exe)
         shell: bash
-        run: set -o pipefail; npx tauri build --bundles nsis 2>&1 | tee ci-win.log
+        run: |
+          set -o pipefail
+          npx tauri build --bundles nsis 2>&1 | tee ci-win.log
+          mkdir -p ../artifacts/windows
+          find target src-tauri/target -type f -path "*nsis*" -name "*.exe" -exec cp -v {} ../artifacts/windows/ \; 2>/dev/null || true
+          ls -la ../artifacts/windows
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Windows-exe
-          path: ciphervaultx/target/release/bundle/nsis/*.exe
+          path: artifacts/windows/*.exe
           if-no-files-found: error
       - name: Report failure diagnostics
         if: failure()
@@ -201,11 +206,14 @@ jobs:
           set -o pipefail
           npx tauri android init --ci 2>&1 | tee /tmp/ci-android.log
           npx tauri android build --apk --debug --target aarch64 2>&1 | tee -a /tmp/ci-android.log
+          mkdir -p ../artifacts/android
+          find src-tauri/gen/android -type f -name "*.apk" -exec cp -v {} ../artifacts/android/ \;
+          ls -la ../artifacts/android
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Android-apk
-          path: ciphervaultx/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: artifacts/android/*.apk
           if-no-files-found: error
       - name: Report failure diagnostics
         if: failure()
