@@ -131,15 +131,15 @@ fn auth_password_policy_recovery_and_change_password() {
     let vault_root = dir.path().join("vault");
 
     // Short password rejected by policy.
-    let err = Vault::create(
-        &vault_root,
-        "short123",
-        CipherSuite::Aes256Gcm,
-        fast_valid_kdf(),
-    )
-    .err()
-    .expect("short password must fail");
-    assert!(matches!(err, VaultError::WeakPassword));
+    assert!(matches!(
+        Vault::create(
+            &vault_root,
+            "short123",
+            CipherSuite::Aes256Gcm,
+            fast_valid_kdf(),
+        ),
+        Err(VaultError::WeakPassword)
+    ));
 
     let (mut vault, recovery) = Vault::create(
         &vault_root,
@@ -150,10 +150,10 @@ fn auth_password_policy_recovery_and_change_password() {
     .expect("create");
 
     // Wrong password rejected.
-    let err = Vault::unlock_with_password(&vault_root, "wrong-password-123456")
-        .err()
-        .expect("wrong password must fail");
-    assert!(matches!(err, VaultError::InvalidCredentials));
+    assert!(matches!(
+        Vault::unlock_with_password(&vault_root, "wrong-password-123456"),
+        Err(VaultError::InvalidCredentials)
+    ));
 
     // Change password invalidates old password.
     vault
@@ -296,8 +296,7 @@ fn folder_ops_unicode_nfc_and_safety_guards() {
     // Refuse moving folder into its own subtree.
     let err = vault
         .move_entry("/archive", "/archive/sub")
-        .err()
-        .expect("subtree move must fail");
+        .expect_err("subtree move must fail");
     assert!(matches!(err, VaultError::InvalidMoveTarget));
 
     vault

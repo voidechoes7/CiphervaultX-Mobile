@@ -104,10 +104,9 @@ fn single_bit_flips_in_header_and_chunks_fail_and_leave_no_output() {
         fs::write(ct_path, &tampered).expect("write tampered");
 
         let dst = work.join(format!("should_not_exist_{i}.bin"));
-        let err = vault
-            .export_file("/two_chunks.bin", &dst, None)
-            .err()
-            .unwrap_or_else(|| panic!("flip at offset {off} MUST fail"));
+        let Err(err) = vault.export_file("/two_chunks.bin", &dst, None) else {
+            panic!("flip at offset {off} MUST fail");
+        };
         assert!(
             matches!(err, VaultError::Integrity),
             "expected Integrity at offset {off}, got {err:?}"
