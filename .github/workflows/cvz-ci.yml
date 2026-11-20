@@ -12,8 +12,13 @@ on:
       - ".github/workflows/cvz-ci.yml"
   workflow_dispatch:
 
+concurrency:
+  group: cvz-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
+  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -78,30 +83,6 @@ jobs:
         run: set -o pipefail; cargo test -p cvz-core --release --all-features 2>&1 | tee /tmp/ci-step.log
       - name: Build workspace
         run: set -o pipefail; cargo build --workspace 2>&1 | tee /tmp/ci-step.log
-      - name: Report failure diagnostics
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          log = ""
-          if os.path.exists("/tmp/ci-step.log"):
-              lines = open("/tmp/ci-step.log", errors="replace").read().splitlines()
-              log = "\n".join(lines[-80:])
-          body = f"### CI failure: rust-linux\n```\n{log}\n```"
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
-              data=json.dumps({"body": body}).encode(),
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "Content-Type": "application/json",
-              },
-              method="POST",
-          )
-          urllib.request.urlopen(req).read()
-          PY
 
   rust-windows:
     name: Windows (Build, Tests, NSIS .exe Bundle)
@@ -124,49 +105,22 @@ jobs:
           workspaces: ciphervaultx
       - name: Build workspace
         shell: bash
-        run: set -o pipefail; cargo build --workspace 2>&1 | tee ci-win.log
+        run: set -o pipefail; cargo build --workspace
       - name: Test cvz-core (--all-features)
         shell: bash
-        run: set -o pipefail; cargo test -p cvz-core --all-features 2>&1 | tee ci-win.log
+        run: set -o pipefail; cargo test -p cvz-core --all-features
       - name: Build Windows NSIS installer (.exe)
         shell: bash
         run: |
           set -o pipefail
-          npx tauri build --bundles nsis 2>&1 | tee ci-win.log
-          mkdir -p ../artifacts/windows
-          find target src-tauri/target -type f -path "*nsis*" -name "*.exe" -exec cp -v {} ../artifacts/windows/ \; 2>/dev/null || true
-          ls -la ../artifacts/windows
+          npx tauri build --bundles nsis
+          cp "target/release/bundle/nsis/Fortress CipherVaultX_0.1.0_x64-setup.exe" ../Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
+          ls -lh ../Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Windows-exe
-          path: artifacts/windows/*.exe
-          if-no-files-found: error
-      - name: Report failure diagnostics
-        if: failure()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          log = ""
-          if os.path.exists("ci-win.log"):
-              lines = open("ci-win.log", errors="replace").read().splitlines()
-              log = "\n".join(lines[-80:])
-          body = f"### CI failure: rust-windows\n```\n{log}\n```"
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
-              data=json.dumps({"body": body}).encode(),
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "Content-Type": "application/json",
-              },
-              method="POST",
-          )
-          urllib.request.urlopen(req).read()
-          PY
+          path: Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
 
   android-apk:
     name: Android (Core Cross-Compile & Debug APK)
@@ -204,38 +158,12 @@ jobs:
       - name: Initialize Tauri Android project & build debug APK
         run: |
           set -o pipefail
-          npx tauri android init --ci 2>&1 | tee /tmp/ci-android.log
-          npx tauri android build --apk --debug --target aarch64 2>&1 | tee -a /tmp/ci-android.log
-          mkdir -p ../artifacts/android
-          find src-tauri/gen/android -type f -name "*.apk" -exec cp -v {} ../artifacts/android/ \;
-          ls -la ../artifacts/android
+          npx tauri android init --ci
+          npx tauri android build --apk --debug --target aarch64
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk ../Fortress-CipherVaultX-v0.1.0-android-debug.apk
+          ls -lh ../Fortress-CipherVaultX-v0.1.0-android-debug.apk
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Android-apk
-          path: artifacts/android/*.apk
-          if-no-files-found: error
-      - name: Report failure diagnostics
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          log = ""
-          if os.path.exists("/tmp/ci-android.log"):
-              lines = open("/tmp/ci-android.log", errors="replace").read().splitlines()
-              log = "\n".join(lines[-80:])
-          body = f"### CI failure: android-apk\n```\n{log}\n```"
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
-              data=json.dumps({"body": body}).encode(),
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "Content-Type": "application/json",
-              },
-              method="POST",
-          )
-          urllib.request.urlopen(req).read()
-          PY
+          path: Fortress-CipherVaultX-v0.1.0-android-debug.apk
