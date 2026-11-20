@@ -4,6 +4,7 @@ import { backend, isTauriRuntime, type VaultInfo } from "@/lib/api";
 import { applyTheme, isValidTheme, loadTheme, type ThemeId } from "@/lib/themes";
 import { CreateVaultWizard } from "./components/CreateVaultWizard";
 import { FileExplorer } from "./components/FileExplorer";
+import { PasswordGeneratorView } from "./components/PasswordGeneratorView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar, type ActiveView } from "./components/Sidebar";
 import { UnlockDialog } from "./components/UnlockDialog";
@@ -156,6 +157,8 @@ export const App: React.FC = () => {
             onLock={handleLockVault}
           />
         )}
+
+        {view.kind === "generator" && <PasswordGeneratorView />}
 
         {view.kind === "settings" && (
           <SettingsView

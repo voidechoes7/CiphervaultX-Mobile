@@ -113,8 +113,8 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
         setError("Argon2id memory must be between 64 MiB and 2048 MiB.");
         return;
       }
-      if (iterations < 2 || iterations > 20) {
-        setError("Argon2id iterations must be between 2 and 20.");
+      if (iterations < 2 || iterations > 500) {
+        setError("Argon2id iterations must be between 2 and 500.");
         return;
       }
       if (parallelism < 1 || parallelism > 16) {
@@ -301,7 +301,7 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                       id="argon-iter"
                       type="number"
                       min={2}
-                      max={20}
+                      max={500}
                       value={iterations}
                       onChange={(e) => setIterations(Number(e.target.value))}
                     />
