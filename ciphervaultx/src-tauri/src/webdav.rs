@@ -8,13 +8,14 @@
 
 use std::collections::HashMap;
 use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use cvz_core::{EntryKind, Vault, VaultEntry};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
 
 const MAX_PUT_BYTES: usize = 256 * 1024 * 1024;
 
@@ -28,7 +29,7 @@ pub struct MountInfo {
 
 pub struct MountHandle {
     pub info: MountInfo,
-    shutdown_tx: Option<oneshot::Sender<()>>,
+    shutdown: Arc<AtomicBool>,
 }
 
 impl MountHandle {
@@ -36,9 +37,7 @@ impl MountHandle {
         if let Some(letter) = self.info.drive_letter.take() {
             unmount_os_drive(&letter);
         }
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
+        self.shutdown.store(true, Ordering::SeqCst);
     }
 }
 
@@ -59,26 +58,22 @@ pub async fn start_mount(
     let token = uuid::Uuid::new_v4().simple().to_string();
     let url = format!("http://127.0.0.1:{port}/{token}/");
 
-    let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let srv_shutdown = shutdown.clone();
     let srv_token = token.clone();
     let srv_vault = vault.clone();
 
     tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = &mut shutdown_rx => {
-                    break;
-                }
-                accept_res = listener.accept() => {
-                    let Ok((stream, _addr)) = accept_res else {
-                        continue;
-                    };
+        while !srv_shutdown.load(Ordering::SeqCst) {
+            match tokio::time::timeout(Duration::from_millis(250), listener.accept()).await {
+                Ok(Ok((stream, _addr))) => {
                     let conn_vault = srv_vault.clone();
                     let conn_token = srv_token.clone();
                     tauri::async_runtime::spawn(async move {
                         let _ = handle_connection(stream, conn_vault, conn_token).await;
                     });
                 }
+                Ok(Err(_)) | Err(_) => continue,
             }
         }
     });
@@ -96,7 +91,7 @@ pub async fn start_mount(
             mount_point,
             drive_letter,
         },
-        shutdown_tx: Some(shutdown_tx),
+        shutdown,
     })
 }
 

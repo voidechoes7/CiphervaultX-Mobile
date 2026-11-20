@@ -189,22 +189,20 @@ jobs:
         run: |
           set -o pipefail
           npx tauri ios init --ci 2>&1 | tee /tmp/ci-ios.log
-          PROJ=$(find src-tauri/gen/apple -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-          echo "Detected Xcode project: $PROJ" | tee -a /tmp/ci-ios.log
-          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f && NF{gsub(/^[ \t]+/,""); print; exit}')
-          echo "Detected Xcode scheme: $SCHEME" | tee -a /tmp/ci-ios.log
-          xcodebuild \
-            -project "$PROJ" \
-            -scheme "$SCHEME" \
-            -configuration release \
-            -sdk iphoneos \
-            -arch arm64 \
-            -derivedDataPath build-ios \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee -a /tmp/ci-ios.log
-          APP_PATH=$(find build-ios/Build/Products -maxdepth 3 -name "*.app" | head -n 1)
+          PBX=$(find src-tauri/gen/apple -maxdepth 3 -name "project.pbxproj" | head -n 1)
+          echo "Patching unsigned build settings in: $PBX" | tee -a /tmp/ci-ios.log
+          python3 - "$PBX" <<'PY'
+          import sys
+          p = sys.argv[1]
+          txt = open(p).read()
+          txt = txt.replace(
+              "buildSettings = {",
+              "buildSettings = {\n\t\t\t\tCODE_SIGNING_ALLOWED = NO;\n\t\t\t\tCODE_SIGNING_REQUIRED = NO;\n\t\t\t\tCODE_SIGN_IDENTITY = \"\";",
+          )
+          open(p, "w").write(txt)
+          PY
+          npx tauri ios build --ci --debug --target aarch64 2>&1 | tee -a /tmp/ci-ios.log
+          APP_PATH=$(find src-tauri/gen/apple ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*iphoneos*" 2>/dev/null | head -n 1)
           echo "Built app bundle: $APP_PATH" | tee -a /tmp/ci-ios.log
           rm -rf Payload
           mkdir -p Payload
