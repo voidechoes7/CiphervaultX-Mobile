@@ -1,6 +1,12 @@
 import * as React from "react";
 import { Check, Copy, FolderOpen } from "lucide-react";
-import { backend, type CipherSuite, type KdfProfile, type VaultInfo } from "@/lib/api";
+import {
+  backend,
+  type CipherSuite,
+  type CustomArgon2Params,
+  type KdfProfile,
+  type VaultInfo,
+} from "@/lib/api";
 import { MIN_PASSWORD_CHARS, passwordStrength } from "@/lib/password";
 import { Button } from "./ui/button";
 import {
@@ -16,6 +22,8 @@ import { Label } from "./ui/label";
 import { Progress } from "./ui/progress";
 import { Select } from "./ui/select";
 
+type KdfChoice = "desktop" | "mobile" | "high" | "custom";
+
 interface CreateVaultWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -30,7 +38,10 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
   const [name, setName] = React.useState("");
   const [path, setPath] = React.useState("");
   const [suite, setSuite] = React.useState<CipherSuite>("xchacha20-poly1305");
-  const [kdfProfile, setKdfProfile] = React.useState<KdfProfile>("desktop");
+  const [kdfChoice, setKdfChoice] = React.useState<KdfChoice>("desktop");
+  const [memoryMiB, setMemoryMiB] = React.useState(256);
+  const [iterations, setIterations] = React.useState(3);
+  const [parallelism, setParallelism] = React.useState(1);
   const [password, setPassword] = React.useState("");
   const [confirm, setConfirm] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -46,7 +57,10 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
     setName("");
     setPath("");
     setSuite("xchacha20-poly1305");
-    setKdfProfile("desktop");
+    setKdfChoice("desktop");
+    setMemoryMiB(256);
+    setIterations(3);
+    setParallelism(1);
     setPassword("");
     setConfirm("");
     setBusy(false);
@@ -85,6 +99,35 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
       setError("Passwords do not match.");
       return;
     }
+
+    let kdfProfile: KdfProfile = "desktop";
+    let customKdf: CustomArgon2Params | undefined;
+
+    if (kdfChoice === "mobile") {
+      kdfProfile = "mobile";
+    } else if (kdfChoice === "high") {
+      kdfProfile = "desktop";
+      customKdf = { m_cost: 512 * 1024, t_cost: 4, p_cost: 2 };
+    } else if (kdfChoice === "custom") {
+      if (memoryMiB < 64 || memoryMiB > 2048) {
+        setError("Argon2id memory must be between 64 MiB and 2048 MiB.");
+        return;
+      }
+      if (iterations < 2 || iterations > 20) {
+        setError("Argon2id iterations must be between 2 and 20.");
+        return;
+      }
+      if (parallelism < 1 || parallelism > 16) {
+        setError("Argon2id parallelism must be between 1 and 16.");
+        return;
+      }
+      customKdf = {
+        m_cost: Math.round(memoryMiB) * 1024,
+        t_cost: Math.round(iterations),
+        p_cost: Math.round(parallelism),
+      };
+    }
+
     setBusy(true);
     try {
       const res = await backend.createVault({
@@ -93,6 +136,7 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
         suite,
         kdfProfile,
         password,
+        customKdf,
       });
       setPassword("");
       setConfirm("");
@@ -123,6 +167,15 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
     onOpenChange(false);
     onCreated(v);
   };
+
+  const effectiveMemoryMiB =
+    kdfChoice === "mobile"
+      ? 64
+      : kdfChoice === "desktop"
+      ? 256
+      : kdfChoice === "high"
+      ? 512
+      : memoryMiB;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -217,14 +270,62 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                   <Label htmlFor="vault-kdf">Argon2id Profile</Label>
                   <Select
                     id="vault-kdf"
-                    value={kdfProfile}
-                    onChange={(e) => setKdfProfile(e.target.value as KdfProfile)}
+                    value={kdfChoice}
+                    onChange={(e) => setKdfChoice(e.target.value as KdfChoice)}
                   >
                     <option value="desktop">Desktop (256 MiB, t=3, p=1)</option>
                     <option value="mobile">Mobile (64 MiB, t=3, p=1)</option>
+                    <option value="high">High Desktop (512 MiB, t=4, p=2)</option>
+                    <option value="custom">Custom Argon2id (Advanced)</option>
                   </Select>
                 </div>
               </div>
+
+              {kdfChoice === "custom" && (
+                <div className="grid grid-cols-3 gap-3 rounded-md border border-border bg-card/60 p-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="argon-mem">Memory (MiB)</Label>
+                    <Input
+                      id="argon-mem"
+                      type="number"
+                      min={64}
+                      max={2048}
+                      step={64}
+                      value={memoryMiB}
+                      onChange={(e) => setMemoryMiB(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="argon-iter">Rounds (t)</Label>
+                    <Input
+                      id="argon-iter"
+                      type="number"
+                      min={2}
+                      max={20}
+                      value={iterations}
+                      onChange={(e) => setIterations(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="argon-par">Parallelism (p)</Label>
+                    <Input
+                      id="argon-par"
+                      type="number"
+                      min={1}
+                      max={16}
+                      value={parallelism}
+                      onChange={(e) => setParallelism(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {effectiveMemoryMiB > 256 && (
+                <p className="text-xs text-muted-foreground">
+                  Note: Memory above 256 MiB strengthens desktop GPU resistance, but iOS/Android
+                  devices may lack sufficient RAM to unlock this vault.
+                </p>
+              )}
 
               <div className="space-y-1.5">
                 <Label htmlFor="vault-password">

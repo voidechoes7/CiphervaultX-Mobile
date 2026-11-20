@@ -77,9 +77,11 @@ pub async fn create_vault(
     suite: CipherSuite,
     kdf_profile: KdfProfile,
     password: String,
+    custom_kdf: Option<Argon2Params>,
 ) -> Result<CreateVaultResult, String> {
     let root = PathBuf::from(&path);
-    let params = Argon2Params::for_profile(kdf_profile);
+    let params = custom_kdf.unwrap_or_else(|| Argon2Params::for_profile(kdf_profile));
+    params.validate().map_err(|e| e.to_string())?;
 
     let (vault, recovery) = tauri::async_runtime::spawn_blocking(move || {
         Vault::create(&root, &password, suite, params)

@@ -62,6 +62,12 @@ export interface MountInfo {
   drive_letter: string | null;
 }
 
+export interface CustomArgon2Params {
+  m_cost: number;
+  t_cost: number;
+  p_cost: number;
+}
+
 export interface Backend {
   listVaults(): Promise<VaultInfo[]>;
   createVault(args: {
@@ -70,6 +76,7 @@ export interface Backend {
     suite: CipherSuite;
     kdfProfile: KdfProfile;
     password: string;
+    customKdf?: CustomArgon2Params;
   }): Promise<CreateVaultResult>;
   registerExistingVault(path: string, name?: string): Promise<void>;
   removeVaultEntry(vaultId: string): Promise<boolean>;
@@ -117,13 +124,14 @@ export function isTauriRuntime(): boolean {
 
 const tauriBackend: Backend = {
   listVaults: () => invoke<VaultInfo[]>("list_vaults"),
-  createVault: ({ name, path, suite, kdfProfile, password }) =>
+  createVault: ({ name, path, suite, kdfProfile, password, customKdf }) =>
     invoke<CreateVaultResult>("create_vault", {
       name,
       path,
       suite,
       kdfProfile,
       password,
+      customKdf: customKdf ?? null,
     }),
   registerExistingVault: async (path, name) => {
     await invoke("register_existing_vault", { path, name: name ?? null });
