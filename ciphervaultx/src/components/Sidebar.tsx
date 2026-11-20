@@ -1,5 +1,5 @@
 import * as React from "react";
-import { KeyRound, Lock, Plus, Settings, Shield, Unlock } from "lucide-react";
+import { KeyRound, Lock, Plus, Settings, Unlock } from "lucide-react";
 import type { VaultInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -31,9 +31,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="surface-glass flex h-full w-64 shrink-0 flex-col border-r border-border">
       <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card">
-          <Shield className="h-4 w-4 text-primary" />
-        </div>
+        <img
+          src="/logo.png"
+          alt="Fortress CipherVaultX"
+          className="h-9 w-9 rounded-md border border-border object-cover"
+        />
         <div>
           <div className="text-sm font-semibold tracking-tight">Fortress</div>
           <div className="text-[11px] text-muted-foreground">CipherVaultX · CVZ v1</div>
