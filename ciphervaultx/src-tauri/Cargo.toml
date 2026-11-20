@@ -28,6 +28,6 @@ tauri = { version = "2", features = [] }
 # Tauri 2 native file/folder picker dialog plugin (MIT OR Apache-2.0)
 tauri-plugin-dialog = "2"
 # Async runtime for auto-lock timer, blocking I/O offload, and loopback WebDAV drive (MIT)
-tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "net", "io-util"] }
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "net", "io-util", "macros"] }
 # Random UUIDs for known vault registry IDs (MIT OR Apache-2.0)
 uuid = { version = "1", features = ["v4"] }

@@ -188,11 +188,11 @@ jobs:
       - name: Initialize Tauri iOS project & build unsigned IPA
         run: |
           set -o pipefail
-          npx tauri ios init --ci
+          npx tauri ios init --ci 2>&1 | tee /tmp/ci-ios.log
           PROJ=$(find src-tauri/gen/apple -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-          echo "Detected Xcode project: $PROJ"
+          echo "Detected Xcode project: $PROJ" | tee -a /tmp/ci-ios.log
           SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f && NF{gsub(/^[ \t]+/,""); print; exit}')
-          echo "Detected Xcode scheme: $SCHEME"
+          echo "Detected Xcode scheme: $SCHEME" | tee -a /tmp/ci-ios.log
           xcodebuild \
             -project "$PROJ" \
             -scheme "$SCHEME" \
@@ -203,9 +203,9 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee -a /tmp/ci-ios.log
           APP_PATH=$(find build-ios/Build/Products -maxdepth 3 -name "*.app" | head -n 1)
-          echo "Built app bundle: $APP_PATH"
+          echo "Built app bundle: $APP_PATH" | tee -a /tmp/ci-ios.log
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
@@ -216,3 +216,27 @@ jobs:
         with:
           name: Fortress-CipherVaultX-iOS-ipa
           path: Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa
+      - name: Report iOS failure diagnostics
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          log = ""
+          if os.path.exists("/tmp/ci-ios.log"):
+              lines = open("/tmp/ci-ios.log", errors="replace").read().splitlines()
+              log = "\n".join(lines[-80:])
+          body = f"### CI failure: ios-ipa\n```\n{log}\n```"
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          urllib.request.urlopen(req).read()
+          PY

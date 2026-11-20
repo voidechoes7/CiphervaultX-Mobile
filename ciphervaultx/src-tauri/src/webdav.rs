@@ -324,7 +324,7 @@ async fn handle_connection(
             let src_vp = vault_path.clone();
             let res = tauri::async_runtime::spawn_blocking(move || {
                 let guard = v_clone.read().map_err(|_| "lock poisoned".to_string())?;
-                let (src_parent, _src_name) = split_parent_name(&src_vp);
+                let (src_parent, src_name) = split_parent_name(&src_vp);
                 let (dst_parent, dst_name) = split_parent_name(&dst_vault_path);
                 if src_parent == dst_parent {
                     guard
@@ -335,11 +335,11 @@ async fn handle_connection(
                         .move_entry(&src_vp, &dst_parent)
                         .map_err(|e| e.to_string())?;
                     let moved_path = if dst_parent == "/" {
-                        format!("/{_src_name}")
+                        format!("/{src_name}")
                     } else {
-                        format!("{dst_parent}/{_src_name}")
+                        format!("{dst_parent}/{src_name}")
                     };
-                    if _src_name != dst_name {
+                    if src_name != dst_name {
                         guard
                             .rename_entry(&moved_path, &dst_name)
                             .map_err(|e| e.to_string())?;
