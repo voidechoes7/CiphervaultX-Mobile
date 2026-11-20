@@ -201,9 +201,13 @@ jobs:
           )
           open(p, "w").write(txt)
           PY
-          npx tauri ios build --ci --debug --target aarch64 2>&1 | tee -a /tmp/ci-ios.log
-          APP_PATH=$(find src-tauri/gen/apple ~/Library/Developer/Xcode/DerivedData -name "*.app" -path "*iphoneos*" 2>/dev/null | head -n 1)
+          npx tauri ios build --ci --debug --target aarch64 2>&1 | tee -a /tmp/ci-ios.log || true
+          APP_PATH=$(find src-tauri/gen/apple ~/Library/Developer/Xcode/DerivedData -name "*.app" \( -path "*Applications*" -o -path "*iphoneos*" \) 2>/dev/null | head -n 1)
           echo "Built app bundle: $APP_PATH" | tee -a /tmp/ci-ios.log
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No compiled iOS .app bundle found" | tee -a /tmp/ci-ios.log
+            exit 1
+          fi
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/

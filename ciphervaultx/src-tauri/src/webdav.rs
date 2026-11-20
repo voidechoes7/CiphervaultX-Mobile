@@ -7,6 +7,7 @@
 //! - Automatically unmounted and shut down when the vault is locked or auto-locked.
 
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -398,7 +399,7 @@ async fn write_response(
         body.len()
     );
     for (k, v) in headers {
-        resp.push_str(&format!("{k}: {v}\r\n"));
+        let _ = write!(resp, "{k}: {v}\r\n");
     }
     resp.push_str("\r\n");
     stream.write_all(resp.as_bytes()).await?;
@@ -415,7 +416,7 @@ async fn write_head_response(
 ) -> std::io::Result<()> {
     let mut resp = format!("HTTP/1.1 {status}\r\nConnection: close\r\n");
     for (k, v) in headers {
-        resp.push_str(&format!("{k}: {v}\r\n"));
+        let _ = write!(resp, "{k}: {v}\r\n");
     }
     resp.push_str("\r\n");
     stream.write_all(resp.as_bytes()).await?;
@@ -459,9 +460,11 @@ fn append_entry_xml(xml: &mut String, prefix: &str, entry: &VaultEntry) {
     if entry.kind == EntryKind::Directory {
         xml.push_str("<D:resourcetype><D:collection/></D:resourcetype>");
     } else {
-        xml.push_str("<D:resourcetype/><D:getcontentlength>");
-        xml.push_str(&entry.size.to_string());
-        xml.push_str("</D:getcontentlength>");
+        let _ = write!(
+            xml,
+            "<D:resourcetype/><D:getcontentlength>{}</D:getcontentlength>",
+            entry.size
+        );
     }
     xml.push_str("</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>");
 }
@@ -485,7 +488,7 @@ fn encode_webdav_path(path: &str) -> String {
             if b.is_ascii_alphanumeric() || matches!(*b, b'-' | b'_' | b'.' | b'~') {
                 out.push(*b as char);
             } else {
-                out.push_str(&format!("%{:02X}", b));
+                let _ = write!(out, "%{b:02X}");
             }
         }
     }
