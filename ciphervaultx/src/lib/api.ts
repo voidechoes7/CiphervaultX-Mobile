@@ -55,6 +55,13 @@ export interface AppSettings {
   auto_lock_minutes: number;
 }
 
+export interface MountInfo {
+  vault_id: string;
+  url: string;
+  mount_point: string;
+  drive_letter: string | null;
+}
+
 export interface Backend {
   listVaults(): Promise<VaultInfo[]>;
   createVault(args: {
@@ -82,6 +89,10 @@ export interface Backend {
   }): Promise<void>;
   lockVault(vaultId: string): Promise<boolean>;
   lockAllVaults(): Promise<string[]>;
+  mountVault(vaultId: string): Promise<MountInfo>;
+  unmountVault(vaultId: string): Promise<boolean>;
+  getMountInfo(vaultId: string): Promise<MountInfo | null>;
+  revealMount(vaultId: string): Promise<void>;
   listDir(vaultId: string, path: string): Promise<VaultEntry[]>;
   createDir(vaultId: string, path: string): Promise<void>;
   importFile(vaultId: string, srcPath: string, dstVaultPath: string): Promise<number>;

@@ -75,6 +75,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     name: string;
     payload: PreviewPayload;
   } | null>(null);
+  const [mountInfo, setMountInfo] = React.useState<MountInfo | null>(null);
+  const [mounting, setMounting] = React.useState(false);
 
   const loadDirectory = React.useCallback(
     async (targetPath: string) => {
@@ -95,7 +97,40 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   React.useEffect(() => {
     setCwd("/");
     setSearchQuery("");
+    void backend.getMountInfo(vault.id).then(setMountInfo).catch(() => setMountInfo(null));
   }, [vault.id]);
+
+  const handleMount = async () => {
+    setMounting(true);
+    setError(null);
+    try {
+      const info = await backend.mountVault(vault.id);
+      setMountInfo(info);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMounting(false);
+    }
+  };
+
+  const handleUnmount = async () => {
+    setError(null);
+    try {
+      await backend.unmountVault(vault.id);
+      setMountInfo(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRevealMount = async () => {
+    setError(null);
+    try {
+      await backend.revealMount(vault.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   React.useEffect(() => {
     if (searchQuery.trim()) {
