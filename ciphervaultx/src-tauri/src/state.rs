@@ -6,10 +6,12 @@ use cvz_core::Vault;
 use tauri::{AppHandle, Emitter};
 
 use crate::registry;
+use crate::webdav::{MountHandle, MountInfo};
 
 #[derive(Clone)]
 pub struct AppState {
     sessions: Arc<RwLock<HashMap<String, Arc<RwLock<Vault>>>>>,
+    mounts: Arc<RwLock<HashMap<String, MountHandle>>>,
     last_activity: Arc<RwLock<Instant>>,
 }
 
@@ -23,6 +25,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            mounts: Arc::new(RwLock::new(HashMap::new())),
             last_activity: Arc::new(RwLock::new(Instant::now())),
         }
     }
@@ -68,7 +71,38 @@ impl AppState {
             .unwrap_or(false)
     }
 
+    pub fn insert_mount(&self, id: String, handle: MountHandle) -> Result<MountInfo, String> {
+        let info = handle.info.clone();
+        let mut map = self
+            .mounts
+            .write()
+            .map_err(|_| "mount lock poisoned".to_string())?;
+        if let Some(mut old) = map.remove(&id) {
+            old.unmount();
+        }
+        map.insert(id, handle);
+        Ok(info)
+    }
+
+    pub fn get_mount_info(&self, id: &str) -> Option<MountInfo> {
+        self.mounts
+            .read()
+            .ok()
+            .and_then(|m| m.get(id).map(|h| h.info.clone()))
+    }
+
+    pub fn unmount(&self, id: &str) -> bool {
+        if let Ok(mut map) = self.mounts.write() {
+            if let Some(mut handle) = map.remove(id) {
+                handle.unmount();
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn lock(&self, id: &str) -> bool {
+        self.unmount(id);
         self.sessions
             .write()
             .map(|mut m| m.remove(id).is_some())
@@ -76,6 +110,11 @@ impl AppState {
     }
 
     pub fn lock_all(&self) -> Vec<String> {
+        if let Ok(mut mounts) = self.mounts.write() {
+            for (_, mut h) in mounts.drain() {
+                h.unmount();
+            }
+        }
         self.sessions
             .write()
             .map(|mut m| m.drain().map(|(k, _)| k).collect())

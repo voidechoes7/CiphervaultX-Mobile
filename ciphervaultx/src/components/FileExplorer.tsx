@@ -3,10 +3,12 @@ import {
   AlertTriangle,
   ArrowUp,
   Download,
+  ExternalLink,
   Eye,
   FileText,
   Folder,
   FolderPlus,
+  HardDrive,
   Lock,
   Pencil,
   Search,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   backend,
+  type MountInfo,
   type PreviewPayload,
   type VaultEntry,
   type VaultInfo,
@@ -260,6 +263,45 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           </Button>
         </div>
       </header>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/70 px-6 py-2.5 text-xs">
+        <div className="flex min-w-0 items-center gap-2">
+          <HardDrive className="h-4 w-4 shrink-0 text-primary" />
+          {mountInfo ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="font-medium text-foreground">Virtual Drive:</span>
+              <code className="truncate rounded bg-background px-2 py-0.5 font-mono text-foreground">
+                {mountInfo.mount_point}
+              </code>
+              <span className="hidden text-muted-foreground sm:inline">
+                (auto-unmounts on lock)
+              </span>
+            </div>
+          ) : (
+            <span className="text-muted-foreground">
+              Mount a local loopback virtual drive to drag &amp; drop files directly from Explorer.
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {mountInfo ? (
+            <>
+              <Button variant="outline" size="sm" onClick={handleRevealMount}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open Drive
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleUnmount}>
+                Unmount
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" size="sm" disabled={mounting} onClick={handleMount}>
+              <HardDrive className="h-3.5 w-3.5" />
+              {mounting ? "Mounting…" : "Mount Virtual Drive"}
+            </Button>
+          )}
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/40 px-6 py-3">
         <div className="relative w-full max-w-xs">

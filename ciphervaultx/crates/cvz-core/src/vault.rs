@@ -562,6 +562,135 @@ impl Vault {
         Ok(out)
     }
 
+    pub fn stat_entry(&self, virtual_path: &str) -> Result<VaultEntry> {
+        let parts = split_vault_path(virtual_path)?;
+        if parts.is_empty() {
+            let root_storage = dir_storage_path(&self.root, &self.keys.dir_hash, "")?;
+            let modified_ms = fs::metadata(&root_storage)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            return Ok(VaultEntry {
+                name: String::new(),
+                path: "/".to_string(),
+                kind: EntryKind::Directory,
+                size: 0,
+                modified_ms,
+            });
+        }
+
+        let (name, parent_parts) = parts.split_last().ok_or(VaultError::EntryNotFound)?;
+        let parent_dir_id = self.resolve_dir_id(parent_parts)?;
+        let parent_storage = dir_storage_path(&self.root, &self.keys.dir_hash, &parent_dir_id)?;
+        let full_path = format!("/{}", parts.join("/"));
+
+        let enc_file = encrypt_name(&self.keys.name_siv, &parent_dir_id, name, false)?;
+        let file_disk = parent_storage.join(&enc_file);
+        if file_disk.is_file() {
+            let meta = fs::metadata(&file_disk)?;
+            let size = plaintext_len(meta.len(), self.config.chunk_size).unwrap_or(0);
+            let modified_ms = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            return Ok(VaultEntry {
+                name: name.clone(),
+                path: full_path,
+                kind: EntryKind::File,
+                size,
+                modified_ms,
+            });
+        }
+
+        let enc_dir = encrypt_name(&self.keys.name_siv, &parent_dir_id, name, true)?;
+        let dir_disk = parent_storage.join(&enc_dir);
+        if dir_disk.is_dir() {
+            let _child_id = self.read_dir_marker(&dir_disk, &parent_dir_id, &enc_dir)?;
+            let meta = fs::metadata(&dir_disk)?;
+            let modified_ms = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            return Ok(VaultEntry {
+                name: name.clone(),
+                path: full_path,
+                kind: EntryKind::Directory,
+                size: 0,
+                modified_ms,
+            });
+        }
+
+        Err(VaultError::EntryNotFound)
+    }
+
+    pub fn write_file_from_reader<R: Read>(
+        &self,
+        dst_vault_path: &str,
+        reader: &mut R,
+    ) -> Result<u64> {
+        let parts = split_vault_path(dst_vault_path)?;
+        let (name, parent_parts) = parts.split_last().ok_or(VaultError::InvalidName)?;
+        let parent_dir_id = self.resolve_dir_id(parent_parts)?;
+        let parent_storage = dir_storage_path(&self.root, &self.keys.dir_hash, &parent_dir_id)?;
+
+        let enc_file_name = encrypt_name(&self.keys.name_siv, &parent_dir_id, name, false)?;
+        let enc_dir_name = encrypt_name(&self.keys.name_siv, &parent_dir_id, name, true)?;
+        if parent_storage.join(&enc_dir_name).exists() {
+            return Err(VaultError::AlreadyExists);
+        }
+
+        let dst_disk = parent_storage.join(&enc_file_name);
+        let suite = self.config.suite;
+        let chunk_size = self.config.chunk_size;
+        let vault_id = self.vault_id;
+        let file_header_key = &self.keys.file_header;
+
+        atomic_write_with(&dst_disk, |writer| {
+            encrypt_stream(
+                reader,
+                writer,
+                suite,
+                chunk_size,
+                &vault_id,
+                file_header_key,
+                |_| {},
+            )
+        })
+    }
+
+    pub fn read_file_to_writer<W: Write>(
+        &self,
+        src_vault_path: &str,
+        writer: &mut W,
+    ) -> Result<u64> {
+        let parts = split_vault_path(src_vault_path)?;
+        let (name, parent_parts) = parts.split_last().ok_or(VaultError::EntryNotFound)?;
+        let parent_dir_id = self.resolve_dir_id(parent_parts)?;
+        let parent_storage = dir_storage_path(&self.root, &self.keys.dir_hash, &parent_dir_id)?;
+
+        let enc_file_name = encrypt_name(&self.keys.name_siv, &parent_dir_id, name, false)?;
+        let src_disk = parent_storage.join(&enc_file_name);
+        if !src_disk.is_file() {
+            return Err(VaultError::EntryNotFound);
+        }
+
+        let mut reader = BufReader::new(File::open(&src_disk)?);
+        decrypt_stream(
+            &mut reader,
+            writer,
+            self.config.chunk_size,
+            &self.vault_id,
+            &self.keys.file_header,
+            |_| {},
+        )
+    }
+
     pub fn rename_entry(&self, src_vault_path: &str, new_name: &str) -> Result<()> {
         let new_name_norm = validate_and_normalize_name(new_name)?;
         let parts = split_vault_path(src_vault_path)?;

@@ -245,6 +245,40 @@ pub fn lock_all_vaults(state: State<'_, AppState>) -> Vec<String> {
 }
 
 #[tauri::command]
+pub async fn mount_vault(
+    state: State<'_, AppState>,
+    vault_id: String,
+) -> Result<crate::webdav::MountInfo, String> {
+    if let Some(existing) = state.get_mount_info(&vault_id) {
+        return Ok(existing);
+    }
+    let session = state.get_session(&vault_id)?;
+    let handle = crate::webdav::start_mount(vault_id.clone(), session).await?;
+    state.insert_mount(vault_id, handle)
+}
+
+#[tauri::command]
+pub fn unmount_vault(state: State<'_, AppState>, vault_id: String) -> bool {
+    state.unmount(&vault_id)
+}
+
+#[tauri::command]
+pub fn get_mount_info(
+    state: State<'_, AppState>,
+    vault_id: String,
+) -> Option<crate::webdav::MountInfo> {
+    state.get_mount_info(&vault_id)
+}
+
+#[tauri::command]
+pub fn reveal_mount(state: State<'_, AppState>, vault_id: String) -> Result<(), String> {
+    let info = state
+        .get_mount_info(&vault_id)
+        .ok_or_else(|| "vault is not mounted".to_string())?;
+    crate::webdav::reveal_mount_point(&info.mount_point)
+}
+
+#[tauri::command]
 pub async fn list_dir(
     state: State<'_, AppState>,
     vault_id: String,

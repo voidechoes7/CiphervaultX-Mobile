@@ -138,6 +138,10 @@ const tauriBackend: Backend = {
     }),
   lockVault: (vaultId) => invoke<boolean>("lock_vault", { vaultId }),
   lockAllVaults: () => invoke<string[]>("lock_all_vaults"),
+  mountVault: (vaultId) => invoke<MountInfo>("mount_vault", { vaultId }),
+  unmountVault: (vaultId) => invoke<boolean>("unmount_vault", { vaultId }),
+  getMountInfo: (vaultId) => invoke<MountInfo | null>("get_mount_info", { vaultId }),
+  revealMount: (vaultId) => invoke<void>("reveal_mount", { vaultId }),
   listDir: (vaultId, path) => invoke<VaultEntry[]>("list_dir", { vaultId, path }),
   createDir: (vaultId, path) => invoke<void>("create_dir", { vaultId, path }),
   importFile: (vaultId, srcPath, dstVaultPath) =>
@@ -277,6 +281,15 @@ function createBrowserMockBackend(): Backend {
       }
       return locked;
     },
+    mountVault: async (vaultId) => ({
+      vault_id: vaultId,
+      url: "http://127.0.0.1:49152/mock-token/",
+      mount_point: "Z:\\",
+      drive_letter: "Z:",
+    }),
+    unmountVault: async () => true,
+    getMountInfo: async () => null,
+    revealMount: async () => undefined,
     listDir: async (_vaultId, path) => [...(entries.get(path) ?? [])],
     createDir: async (_vaultId, path) => {
       const name = path.split("/").filter(Boolean).pop() ?? "Folder";

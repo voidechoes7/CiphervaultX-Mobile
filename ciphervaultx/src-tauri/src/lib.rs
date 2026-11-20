@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod registry;
 pub mod state;
+pub mod webdav;
 
 use state::AppState;
 use tauri::Manager;
@@ -29,6 +30,10 @@ pub fn run() {
             commands::change_vault_password,
             commands::lock_vault,
             commands::lock_all_vaults,
+            commands::mount_vault,
+            commands::unmount_vault,
+            commands::get_mount_info,
+            commands::reveal_mount,
             commands::list_dir,
             commands::create_dir,
             commands::import_file,

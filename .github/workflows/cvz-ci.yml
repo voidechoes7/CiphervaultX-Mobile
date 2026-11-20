@@ -166,3 +166,53 @@ jobs:
         with:
           name: Fortress-CipherVaultX-Android-apk
           path: Fortress-CipherVaultX-v0.1.0-android-debug.apk
+
+  ios-ipa:
+    name: iOS (Core Cross-Compile & Unsigned IPA)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ciphervaultx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Install frontend dependencies & build
+        run: |
+          npm install
+          npm run build
+      - name: Initialize Tauri iOS project & build unsigned IPA
+        run: |
+          set -o pipefail
+          npx tauri ios init --ci
+          PROJ=$(find src-tauri/gen/apple -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+          echo "Detected Xcode project: $PROJ"
+          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f && NF{gsub(/^[ \t]+/,""); print; exit}')
+          echo "Detected Xcode scheme: $SCHEME"
+          xcodebuild \
+            -project "$PROJ" \
+            -scheme "$SCHEME" \
+            -configuration release \
+            -sdk iphoneos \
+            -arch arm64 \
+            -derivedDataPath build-ios \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          APP_PATH=$(find build-ios/Build/Products -maxdepth 3 -name "*.app" | head -n 1)
+          echo "Built app bundle: $APP_PATH"
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry ../Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa Payload
+          ls -lh ../Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa
+      - name: Upload iOS Unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fortress-CipherVaultX-iOS-ipa
+          path: Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa
