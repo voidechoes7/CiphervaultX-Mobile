@@ -1,7 +1,9 @@
 import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
+import { FileArchive, KeyRound, Lock, Menu, Settings, Shield, X } from "lucide-react";
 import { backend, isTauriRuntime, type AppGateStatus, type VaultInfo } from "@/lib/api";
 import { applyTheme, isValidTheme, loadTheme, type ThemeId } from "@/lib/themes";
+import { cn } from "@/lib/utils";
 import { AppAccessGate } from "./components/AppAccessGate";
 import { CreateVaultWizard } from "./components/CreateVaultWizard";
 import { FileExplorer } from "./components/FileExplorer";
@@ -28,6 +30,7 @@ export const App: React.FC = () => {
   const [wizardOpen, setWizardOpen] = React.useState(false);
   const [unlockTarget, setUnlockTarget] = React.useState<VaultInfo | null>(null);
   const [transfer, setTransfer] = React.useState<TransferEvent | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   const refreshVaults = React.useCallback(async () => {
     const list = await backend.listVaults();
@@ -158,21 +161,99 @@ export const App: React.FC = () => {
     await backend.updateSettings({ theme, auto_lock_minutes: minutes });
   };
 
+  const selectView = (next: ActiveView) => {
+    setView(next);
+    setMobileMenuOpen(false);
+  };
+
   const activeVault =
     view.kind === "explorer" ? vaults.find((v) => v.id === view.vaultId) : undefined;
+  const anyUnlocked = vaults.some((v) => v.unlocked);
 
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden bg-background text-foreground"
+      className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground md:flex-row"
       onPointerDown={() => void backend.touchActivity()}
     >
-      <Sidebar
-        vaults={vaults}
-        view={view}
-        onSelectView={setView}
-        onCreateVault={() => setWizardOpen(true)}
-        onLockAll={handleLockAll}
-      />
+      {/* Mobile top bar (< 768px) with safe-area padding for iPhone notch / Android status bar */}
+      <header
+        className="surface-glass flex shrink-0 items-center justify-between border-b border-border px-4 py-3 md:hidden"
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+      >
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <img
+            src="/logo.png"
+            alt="Fortress CipherVaultX"
+            className="h-7 w-7 rounded-md border border-border object-cover"
+          />
+          <div>
+            <div className="text-sm font-semibold leading-tight tracking-tight">CipherVaultX</div>
+            <div className="text-[10px] text-muted-foreground">Fortress · CVZ v1</div>
+          </div>
+        </div>
+        {anyUnlocked && (
+          <button
+            type="button"
+            onClick={() => void handleLockAll()}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground"
+          >
+            <Lock className="h-3.5 w-3.5 text-primary" />
+            Lock All
+          </button>
+        )}
+      </header>
+
+      {/* Desktop persistent sidebar (>= 768px) */}
+      <div className="hidden h-full md:flex">
+        <Sidebar
+          vaults={vaults}
+          view={view}
+          onSelectView={selectView}
+          onCreateVault={() => setWizardOpen(true)}
+          onLockAll={handleLockAll}
+        />
+      </div>
+
+      {/* Mobile slide-over drawer (< 768px) */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          <div
+            className="fixed inset-0 bg-background/75 backdrop-blur-sm"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div className="relative z-10 flex h-full w-72 max-w-[85vw] flex-col shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className="absolute right-3 top-4 z-20 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label="Close navigation menu"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <Sidebar
+              vaults={vaults}
+              view={view}
+              onSelectView={selectView}
+              onCreateVault={() => {
+                setMobileMenuOpen(false);
+                setWizardOpen(true);
+              }}
+              onLockAll={() => {
+                setMobileMenuOpen(false);
+                void handleLockAll();
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 overflow-y-auto">
         {view.kind === "dashboard" && (
@@ -181,7 +262,7 @@ export const App: React.FC = () => {
             onCreateVault={() => setWizardOpen(true)}
             onAddExisting={handleAddExisting}
             onRequestUnlock={(v) => setUnlockTarget(v)}
-            onOpenVault={(id) => setView({ kind: "explorer", vaultId: id })}
+            onOpenVault={(id) => selectView({ kind: "explorer", vaultId: id })}
             onLockVault={handleLockVault}
             onRemoveVault={handleRemoveVault}
           />
@@ -220,12 +301,68 @@ export const App: React.FC = () => {
         )}
       </main>
 
+      {/* Mobile bottom tab bar (< 768px) */}
+      <nav
+        aria-label="Mobile bottom navigation"
+        className="surface-glass grid shrink-0 grid-cols-4 border-t border-border md:hidden"
+        style={{ paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))" }}
+      >
+        {(
+          [
+            {
+              key: "dashboard",
+              label: "Vaults",
+              icon: Shield,
+              active: view.kind === "dashboard" || view.kind === "explorer",
+              target: { kind: "dashboard" } as ActiveView,
+            },
+            {
+              key: "tools",
+              label: "Tools",
+              icon: FileArchive,
+              active: view.kind === "tools",
+              target: { kind: "tools" } as ActiveView,
+            },
+            {
+              key: "generator",
+              label: "PassGen",
+              icon: KeyRound,
+              active: view.kind === "generator",
+              target: { kind: "generator" } as ActiveView,
+            },
+            {
+              key: "settings",
+              label: "Settings",
+              icon: Settings,
+              active: view.kind === "settings",
+              target: { kind: "settings" } as ActiveView,
+            },
+          ] as const
+        ).map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => selectView(item.target)}
+              className={cn(
+                "flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition-colors",
+                item.active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       <CreateVaultWizard
         open={wizardOpen}
         onOpenChange={setWizardOpen}
         onCreated={async (created) => {
           await refreshVaults();
-          setView({ kind: "explorer", vaultId: created.id });
+          selectView({ kind: "explorer", vaultId: created.id });
         }}
       />
 
@@ -235,7 +372,7 @@ export const App: React.FC = () => {
         onUnlocked={async (unlocked) => {
           setUnlockTarget(null);
           await refreshVaults();
-          setView({ kind: "explorer", vaultId: unlocked.id });
+          selectView({ kind: "explorer", vaultId: unlocked.id });
         }}
       />
     </div>

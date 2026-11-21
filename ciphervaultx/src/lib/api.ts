@@ -121,6 +121,7 @@ export interface Backend {
   importFile(vaultId: string, srcPath: string, dstVaultPath: string): Promise<number>;
   importPaths(vaultId: string, paths: string[], dstDir: string): Promise<number>;
   exportFile(vaultId: string, srcVaultPath: string, dstPath: string): Promise<number>;
+  exportDir(vaultId: string, srcVaultDir: string, dstParentDir: string): Promise<number>;
   previewFile(vaultId: string, path: string): Promise<PreviewPayload>;
   renameEntry(vaultId: string, path: string, newName: string): Promise<void>;
   moveEntry(vaultId: string, srcPath: string, dstDir: string): Promise<void>;
@@ -208,6 +209,8 @@ const tauriBackend: Backend = {
     invoke<number>("import_paths", { vaultId, paths, dstDir }),
   exportFile: (vaultId, srcVaultPath, dstPath) =>
     invoke<number>("export_file", { vaultId, srcVaultPath, dstPath }),
+  exportDir: (vaultId, srcVaultDir, dstParentDir) =>
+    invoke<number>("export_dir", { vaultId, srcVaultDir, dstParentDir }),
   previewFile: (vaultId, path) => invoke<PreviewPayload>("preview_file", { vaultId, path }),
   renameEntry: (vaultId, path, newName) =>
     invoke<void>("rename_entry", { vaultId, path, newName }),
@@ -387,6 +390,7 @@ function createBrowserMockBackend(): Backend {
     importFile: async () => 1024,
     importPaths: async () => 1024,
     exportFile: async () => 1024,
+    exportDir: async () => 4096,
     previewFile: async () => ({
       mime: "text/plain",
       base64: btoa("Synthetic preview content (browser mock mode)."),

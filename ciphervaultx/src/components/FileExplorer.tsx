@@ -237,6 +237,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     }
   };
 
+  const handleExportDir = async (entry: VaultEntry) => {
+    setError(null);
+    const dstParent = await backend.pickFolder(`Select destination folder for "${entry.name}"`);
+    if (!dstParent) return;
+    try {
+      await backend.exportDir(vault.id, entry.path, dstParent);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handlePreview = async (entry: VaultEntry) => {
     setError(null);
     try {
@@ -358,7 +369,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/70 px-6 py-2.5 text-xs">
+      <div className="hidden flex-wrap items-center justify-between gap-3 border-b border-border bg-card/70 px-6 py-2.5 text-xs md:flex">
         <div className="flex min-w-0 items-center gap-2">
           <HardDrive className="h-4 w-4 shrink-0 text-primary" />
           {mountInfo ? (
@@ -439,7 +450,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6">
         {loading ? (
           <p className="py-12 text-center text-sm text-muted-foreground">Decrypting listing…</p>
         ) : visibleEntries.length === 0 ? (
@@ -459,15 +470,15 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="py-2 font-medium">Name</th>
-                <th className="py-2 font-medium">Size</th>
-                <th className="py-2 font-medium">Modified</th>
+                <th className="hidden py-2 font-medium sm:table-cell">Size</th>
+                <th className="hidden py-2 font-medium md:table-cell">Modified</th>
                 <th className="py-2 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {visibleEntries.map((entry) => (
                 <tr key={entry.path} className="hover:bg-accent/30">
-                  <td className="py-2.5 pr-4">
+                  <td className="py-2.5 pr-3">
                     {entry.kind === "directory" ? (
                       <button
                         type="button"
@@ -477,8 +488,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                           setCwd(entry.path);
                         }}
                       >
-                        <Folder className="h-4 w-4 text-primary" />
-                        <span>{entry.name}</span>
+                        <Folder className="h-4 w-4 shrink-0 text-primary" />
+                        <span className="truncate">{entry.name}</span>
                       </button>
                     ) : entry.kind === "unreadable" ? (
                       <div className="flex items-center gap-2 text-destructive">
@@ -488,20 +499,31 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span>{entry.name}</span>
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{entry.name}</span>
                       </div>
                     )}
                   </td>
-                  <td className="py-2.5 text-xs text-muted-foreground">
+                  <td className="hidden py-2.5 text-xs text-muted-foreground sm:table-cell">
                     {entry.kind === "file" ? formatBytes(entry.size) : "—"}
                   </td>
-                  <td className="py-2.5 text-xs text-muted-foreground">
+                  <td className="hidden py-2.5 text-xs text-muted-foreground md:table-cell">
                     {formatDate(entry.modified_ms)}
                   </td>
                   <td className="py-2.5 text-right">
                     {entry.kind !== "unreadable" && (
                       <div className="inline-flex items-center gap-1">
+                        {entry.kind === "directory" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={`Export folder "${entry.name}"`}
+                            aria-label={`Export folder ${entry.name}`}
+                            onClick={() => handleExportDir(entry)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        )}
                         {entry.kind === "file" && (
                           <>
                             <Button

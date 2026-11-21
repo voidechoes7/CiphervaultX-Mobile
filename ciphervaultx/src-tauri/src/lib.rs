@@ -44,6 +44,7 @@ pub fn run() {
             commands::import_file,
             commands::import_paths,
             commands::export_file,
+            commands::export_dir,
             commands::preview_file,
             commands::rename_entry,
             commands::move_entry,

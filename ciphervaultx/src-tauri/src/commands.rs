@@ -532,6 +532,116 @@ pub async fn export_file(
     .map_err(|_| "background task failed".to_string())?
 }
 
+/// Recursively export an entire vault directory (all nested subfolders & files)
+/// into `dst_parent_dir/<folder_name>` using authenticated streaming decryption
+/// and atomic writes.
+#[tauri::command]
+pub async fn export_dir(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    vault_id: String,
+    src_vault_dir: String,
+    dst_parent_dir: String,
+) -> Result<u64, String> {
+    let session = state.get_session(&vault_id)?;
+    let dst_parent = PathBuf::from(dst_parent_dir);
+    let vid = vault_id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let vault = session
+            .read()
+            .map_err(|_| "vault lock poisoned".to_string())?;
+
+        fn sanitize_component(name: &str) -> Result<&str, String> {
+            let trimmed = name.trim();
+            if trimmed.is_empty()
+                || trimmed == "."
+                || trimmed == ".."
+                || trimmed.contains('/')
+                || trimmed.contains('\\')
+                || trimmed.contains('\0')
+            {
+                return Err(format!("unsafe entry name rejected: {trimmed}"));
+            }
+            Ok(trimmed)
+        }
+
+        fn export_recursive(
+            vault: &Vault,
+            app: &AppHandle,
+            vid: &str,
+            vault_dir: &str,
+            disk_dir: &std::path::Path,
+            total_exported: &mut u64,
+        ) -> Result<(), String> {
+            std::fs::create_dir_all(disk_dir).map_err(|e| e.to_string())?;
+            let entries = vault.list_dir(vault_dir).map_err(|e| e.to_string())?;
+            for entry in entries {
+                match entry.kind {
+                    cvz_core::EntryKind::Directory => {
+                        let safe = sanitize_component(&entry.name)?;
+                        let child_disk = disk_dir.join(safe);
+                        export_recursive(
+                            vault,
+                            app,
+                            vid,
+                            &entry.path,
+                            &child_disk,
+                            total_exported,
+                        )?;
+                    }
+                    cvz_core::EntryKind::File => {
+                        let safe = sanitize_component(&entry.name)?;
+                        let child_disk = disk_dir.join(safe);
+                        let mut cb = |done: u64, total: u64| {
+                            let _ = app.emit(
+                                "transfer-progress",
+                                TransferProgress {
+                                    vault_id: vid.to_string(),
+                                    operation: "export".to_string(),
+                                    done,
+                                    total,
+                                },
+                            );
+                        };
+                        let bytes = vault
+                            .export_file(&entry.path, &child_disk, Some(&mut cb))
+                            .map_err(|e| e.to_string())?;
+                        *total_exported += bytes;
+                    }
+                    cvz_core::EntryKind::Unreadable => {
+                        return Err(format!(
+                            "integrity error: unreadable entry encountered in {vault_dir}"
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        let folder_name = src_vault_dir
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("vault-export");
+        let safe_root_name = sanitize_component(folder_name)?;
+        let target_root = dst_parent.join(safe_root_name);
+        let mut total_exported = 0u64;
+        export_recursive(
+            &vault,
+            &app,
+            &vid,
+            &src_vault_dir,
+            &target_root,
+            &mut total_exported,
+        )?;
+        Ok(total_exported)
+    })
+    .await
+    .map_err(|_| "background task failed".to_string())?
+}
+
 #[tauri::command]
 pub async fn preview_file(
     state: State<'_, AppState>,
