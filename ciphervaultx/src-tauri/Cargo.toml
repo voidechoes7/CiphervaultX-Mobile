@@ -2,7 +2,8 @@
 name = "ciphervaultx-app"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish = false
 description = "Fortress / CipherVaultX Tauri 2 desktop & mobile shell (pre-audit)"
 
 [lib]
@@ -14,7 +15,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# Core CVZ v1 cryptography and vault engine (Apache-2.0)
+# Core CVZ v1 cryptography and vault engine (Proprietary — All Rights Reserved)
 cvz-core = { path = "../crates/cvz-core" }
 # Base64 for in-memory preview payloads (MIT OR Apache-2.0)
 base64 = "0.22"

@@ -2,7 +2,8 @@
 name = "cvz-core"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish = false
 description = "Core CVZ v1 encrypted vault library (pre-audit)"
 
 [features]
