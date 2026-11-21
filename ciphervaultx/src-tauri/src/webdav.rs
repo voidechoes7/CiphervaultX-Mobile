@@ -79,18 +79,15 @@ pub async fn start_mount(
         }
     });
 
-    let drive_letter = mount_os_drive(&url);
-    let mount_point = drive_letter
-        .as_ref()
-        .map(|d| format!("{d}\\"))
-        .unwrap_or_else(|| url.clone());
+    let drive_letter = mount_os_drive(port, &token, &url)?;
+    let mount_point = format!("{drive_letter}\\");
 
     Ok(MountHandle {
         info: MountInfo {
             vault_id,
             url,
             mount_point,
-            drive_letter,
+            drive_letter: Some(drive_letter),
         },
         shutdown,
     })
@@ -143,8 +140,31 @@ async fn handle_connection(
 
     let mut stream = reader.into_inner();
     let prefix = format!("/{token}");
+    let dav_prefix = format!("/DavWWWRoot/{token}");
     let path_only = raw_target.split('?').next().unwrap_or(&raw_target);
-    let Some(rel_raw) = path_only.strip_prefix(&prefix) else {
+    let (active_prefix, rel_raw) = if let Some(r) = path_only.strip_prefix(&dav_prefix) {
+        (dav_prefix.as_str(), r)
+    } else if let Some(r) = path_only.strip_prefix(&prefix) {
+        (prefix.as_str(), r)
+    } else if method == "OPTIONS"
+        && (path_only == "/" || path_only == "/DavWWWRoot" || path_only == "/DavWWWRoot/")
+    {
+        write_response(
+            &mut stream,
+            "200 OK",
+            &[
+                ("DAV", "1, 2"),
+                ("MS-Author-Via", "DAV"),
+                (
+                    "Allow",
+                    "OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, MOVE, PROPFIND, LOCK, UNLOCK",
+                ),
+            ],
+            &[],
+        )
+        .await?;
+        return Ok(());
+    } else {
         write_response(&mut stream, "404 Not Found", &[], b"Not Found").await?;
         return Ok(());
     };
@@ -312,8 +332,8 @@ async fn handle_connection(
         "MOVE" => {
             let dest_hdr = headers.get("destination").cloned().unwrap_or_default();
             let dest_path_raw = dest_hdr
-                .find(&prefix)
-                .map(|idx| &dest_hdr[idx + prefix.len()..])
+                .find(active_prefix)
+                .map(|idx| &dest_hdr[idx + active_prefix.len()..])
                 .unwrap_or("");
             let dst_vault_path = decode_webdav_path(dest_path_raw);
             let v_clone = vault.clone();
@@ -533,32 +553,55 @@ fn split_parent_name(path: &str) -> (String, String) {
 }
 
 #[cfg(target_os = "windows")]
-fn mount_os_drive(url: &str) -> Option<String> {
+fn mount_os_drive(port: u16, token: &str, url: &str) -> Result<String, String> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let output = Command::new("net")
-        .args(["use", "*", url, "/persistent:no"])
+
+    // Best-effort start of Windows WebClient service (required for WebDAV drive letters).
+    let _ = Command::new("sc")
+        .args(["start", "WebClient"])
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for token in stdout.split_whitespace() {
-        let bytes = token.as_bytes();
-        if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
-            return Some(token.to_ascii_uppercase());
+        .output();
+
+    let unc = format!(r"\\127.0.0.1@{port}\DavWWWRoot\{token}");
+    let mut last_err = String::new();
+
+    for target in [&unc, url] {
+        let Ok(output) = Command::new("net")
+            .args(["use", "*", target, "/persistent:no"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        else {
+            continue;
+        };
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for tok in stdout.split_whitespace() {
+                let bytes = tok.as_bytes();
+                if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+                    return Ok(tok.to_ascii_uppercase());
+                }
+            }
+        } else {
+            last_err = String::from_utf8_lossy(&output.stderr).trim().to_string();
         }
     }
-    None
+
+    Err(format!(
+        "Could not assign a Windows drive letter (enable the Windows 'WebClient' service in services.msc, or drag & drop files directly into the app). {}",
+        if last_err.is_empty() {
+            String::new()
+        } else {
+            format!("Details: {last_err}")
+        }
+    ))
 }
 
 #[cfg(not(target_os = "windows"))]
-fn mount_os_drive(_url: &str) -> Option<String> {
-    None
+fn mount_os_drive(_port: u16, _token: &str, _url: &str) -> Result<String, String> {
+    Err("Virtual drive mounting is currently available on Windows desktop. Use Drag & Drop or Import directly inside the app.".to_string())
 }
 
 #[cfg(target_os = "windows")]

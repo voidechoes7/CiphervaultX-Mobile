@@ -37,6 +37,7 @@ pub fn run() {
             commands::list_dir,
             commands::create_dir,
             commands::import_file,
+            commands::import_paths,
             commands::export_file,
             commands::preview_file,
             commands::rename_entry,

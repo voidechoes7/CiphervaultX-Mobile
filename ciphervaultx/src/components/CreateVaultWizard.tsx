@@ -261,8 +261,12 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                     value={suite}
                     onChange={(e) => setSuite(e.target.value as CipherSuite)}
                   >
-                    <option value="xchacha20-poly1305">XChaCha20-Poly1305</option>
-                    <option value="aes256-gcm">AES-256-GCM</option>
+                    <option value="xchacha20-poly1305">
+                      XChaCha20-Poly1305 (256-bit · Quantum-Safe at Rest)
+                    </option>
+                    <option value="aes256-gcm">
+                      AES-256-GCM (256-bit · FIPS / Quantum-Safe at Rest)
+                    </option>
                   </Select>
                 </div>
 

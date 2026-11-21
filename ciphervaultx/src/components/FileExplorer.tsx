@@ -1,4 +1,5 @@
 import * as React from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   AlertTriangle,
   ArrowUp,
@@ -8,6 +9,7 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  FolderUp,
   HardDrive,
   Lock,
   Pencil,
@@ -17,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   backend,
+  isTauriRuntime,
   type MountInfo,
   type PreviewPayload,
   type VaultEntry,
@@ -77,6 +80,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   } | null>(null);
   const [mountInfo, setMountInfo] = React.useState<MountInfo | null>(null);
   const [mounting, setMounting] = React.useState(false);
+  const [dragActive, setDragActive] = React.useState(false);
 
   const loadDirectory = React.useCallback(
     async (targetPath: string) => {
@@ -99,6 +103,37 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     setSearchQuery("");
     void backend.getMountInfo(vault.id).then(setMountInfo).catch(() => setMountInfo(null));
   }, [vault.id]);
+
+  // Native Tauri 2 drag-and-drop for files and entire folders (like MEGA / Filen).
+  React.useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWebview()
+      .onDragDropEvent(async (event) => {
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setDragActive(true);
+        } else if (event.payload.type === "leave") {
+          setDragActive(false);
+        } else if (event.payload.type === "drop") {
+          setDragActive(false);
+          const droppedPaths = event.payload.paths;
+          if (!droppedPaths || droppedPaths.length === 0) return;
+          setError(null);
+          try {
+            await backend.importPaths(vault.id, droppedPaths, cwd);
+            await loadDirectory(cwd);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        }
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => {
+      unlisten?.();
+    };
+  }, [vault.id, cwd, loadDirectory]);
 
   const handleMount = async () => {
     setMounting(true);
@@ -167,14 +202,24 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     }
   };
 
-  const handleImport = async () => {
+  const handleImportFiles = async () => {
     setError(null);
-    const src = await backend.pickFileToImport();
-    if (!src) return;
-    const baseName = src.split(/[\\/]/).pop();
-    if (!baseName) return;
+    const paths = await backend.pickFilesToImport();
+    if (paths.length === 0) return;
     try {
-      await backend.importFile(vault.id, src, joinPath(cwd, baseName));
+      await backend.importPaths(vault.id, paths, cwd);
+      await loadDirectory(cwd);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleImportFolder = async () => {
+    setError(null);
+    const folder = await backend.pickFolder("Select folder to encrypt into vault");
+    if (!folder) return;
+    try {
+      await backend.importPaths(vault.id, [folder], cwd);
       await loadDirectory(cwd);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -233,7 +278,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
       : 0;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/85 backdrop-blur-sm">
+          <div className="rounded-xl border-2 border-dashed border-primary bg-card px-10 py-8 text-center shadow-lg">
+            <Upload className="mx-auto mb-3 h-8 w-8 text-primary" />
+            <p className="text-base font-semibold">Drop files or folders to encrypt</p>
+            <p className="mt-1 font-mono text-xs text-muted-foreground">Destination: {cwd}</p>
+          </div>
+        </div>
+      )}
+
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
@@ -272,7 +327,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           </nav>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {cwd !== "/" && (
             <Button
               variant="outline"
@@ -288,9 +343,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
             <FolderPlus className="h-4 w-4" />
             New Folder
           </Button>
-          <Button size="sm" onClick={handleImport}>
+          <Button variant="outline" size="sm" onClick={handleImportFolder}>
+            <FolderUp className="h-4 w-4" />
+            Import Folder
+          </Button>
+          <Button size="sm" onClick={handleImportFiles}>
             <Upload className="h-4 w-4" />
-            Import
+            Import Files
           </Button>
           <Button variant="secondary" size="sm" onClick={() => onLock(vault.id)}>
             <Lock className="h-4 w-4" />
@@ -314,7 +373,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
             </div>
           ) : (
             <span className="text-muted-foreground">
-              Mount a local loopback virtual drive to drag &amp; drop files directly from Explorer.
+              Drag &amp; drop files/folders anywhere below, or mount a Windows virtual drive letter.
             </span>
           )}
         </div>
@@ -384,9 +443,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
         {loading ? (
           <p className="py-12 text-center text-sm text-muted-foreground">Decrypting listing…</p>
         ) : visibleEntries.length === 0 ? (
-          <p className="py-12 text-center text-sm text-muted-foreground">
-            {searchQuery ? "No matching entries." : "This folder is empty."}
-          </p>
+          <div className="my-8 rounded-lg border border-dashed border-border p-12 text-center">
+            <Upload className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
+            <p className="text-sm font-medium">
+              {searchQuery ? "No matching entries." : "This folder is empty"}
+            </p>
+            {!searchQuery && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Drag &amp; drop files or folders here, or use Import Files / Import Folder above.
+              </p>
+            )}
+          </div>
         ) : (
           <table className="w-full text-left text-sm">
             <thead>

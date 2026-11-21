@@ -350,6 +350,96 @@ pub async fn import_file(
 }
 
 #[tauri::command]
+pub async fn import_paths(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    vault_id: String,
+    paths: Vec<String>,
+    dst_dir: String,
+) -> Result<u64, String> {
+    let session = state.get_session(&vault_id)?;
+    let vid = vault_id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let vault = session
+            .read()
+            .map_err(|_| "vault lock poisoned".to_string())?;
+        let base_dir = dst_dir.trim_end_matches('/');
+        let mut total_imported: u64 = 0;
+
+        fn import_one(
+            vault: &Vault,
+            app: &AppHandle,
+            vid: &str,
+            disk_path: &std::path::Path,
+            vault_parent: &str,
+            total_imported: &mut u64,
+        ) -> Result<(), String> {
+            let name = disk_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| "invalid source filename".to_string())?;
+            let target_vpath = if vault_parent.is_empty() || vault_parent == "/" {
+                format!("/{name}")
+            } else {
+                format!("{vault_parent}/{name}")
+            };
+
+            if disk_path.is_dir() {
+                match vault.create_dir(&target_vpath) {
+                    Ok(()) | Err(cvz_core::VaultError::AlreadyExists) => {}
+                    Err(e) => return Err(e.to_string()),
+                }
+                let rd = std::fs::read_dir(disk_path).map_err(|e| e.to_string())?;
+                for entry in rd {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    import_one(
+                        vault,
+                        app,
+                        vid,
+                        &entry.path(),
+                        &target_vpath,
+                        total_imported,
+                    )?;
+                }
+            } else if disk_path.is_file() {
+                let mut cb = |done: u64, total: u64| {
+                    let _ = app.emit(
+                        "transfer-progress",
+                        TransferProgress {
+                            vault_id: vid.to_string(),
+                            operation: "import".to_string(),
+                            done,
+                            total,
+                        },
+                    );
+                };
+                let bytes = vault
+                    .import_file(disk_path, &target_vpath, Some(&mut cb))
+                    .map_err(|e| e.to_string())?;
+                *total_imported += bytes;
+            }
+            Ok(())
+        }
+
+        for p in paths {
+            let disk_path = PathBuf::from(p);
+            import_one(
+                &vault,
+                &app,
+                &vid,
+                &disk_path,
+                base_dir,
+                &mut total_imported,
+            )?;
+        }
+        Ok(total_imported)
+    })
+    .await
+    .map_err(|_| "background task failed".to_string())?
+}
+
+#[tauri::command]
 pub async fn export_file(
     app: AppHandle,
     state: State<'_, AppState>,

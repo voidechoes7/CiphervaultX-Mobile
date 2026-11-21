@@ -103,6 +103,7 @@ export interface Backend {
   listDir(vaultId: string, path: string): Promise<VaultEntry[]>;
   createDir(vaultId: string, path: string): Promise<void>;
   importFile(vaultId: string, srcPath: string, dstVaultPath: string): Promise<number>;
+  importPaths(vaultId: string, paths: string[], dstDir: string): Promise<number>;
   exportFile(vaultId: string, srcVaultPath: string, dstPath: string): Promise<number>;
   previewFile(vaultId: string, path: string): Promise<PreviewPayload>;
   renameEntry(vaultId: string, path: string, newName: string): Promise<void>;
@@ -115,6 +116,7 @@ export interface Backend {
   touchActivity(): Promise<void>;
   pickFolder(title: string): Promise<string | null>;
   pickFileToImport(): Promise<string | null>;
+  pickFilesToImport(): Promise<string[]>;
   pickExportDestination(defaultName: string): Promise<string | null>;
 }
 
@@ -165,6 +167,8 @@ const tauriBackend: Backend = {
   createDir: (vaultId, path) => invoke<void>("create_dir", { vaultId, path }),
   importFile: (vaultId, srcPath, dstVaultPath) =>
     invoke<number>("import_file", { vaultId, srcPath, dstVaultPath }),
+  importPaths: (vaultId, paths, dstDir) =>
+    invoke<number>("import_paths", { vaultId, paths, dstDir }),
   exportFile: (vaultId, srcVaultPath, dstPath) =>
     invoke<number>("export_file", { vaultId, srcVaultPath, dstPath }),
   previewFile: (vaultId, path) => invoke<PreviewPayload>("preview_file", { vaultId, path }),
@@ -185,6 +189,11 @@ const tauriBackend: Backend = {
   pickFileToImport: async () => {
     const res = await open({ directory: false, multiple: false, title: "Select file to encrypt" });
     return typeof res === "string" ? res : null;
+  },
+  pickFilesToImport: async () => {
+    const res = await open({ directory: false, multiple: true, title: "Select files to encrypt" });
+    if (Array.isArray(res)) return res;
+    return typeof res === "string" ? [res] : [];
   },
   pickExportDestination: async (defaultName) => {
     const res = await save({ defaultPath: defaultName, title: "Export decrypted copy" });
@@ -318,6 +327,7 @@ function createBrowserMockBackend(): Backend {
       entries.set(path, []);
     },
     importFile: async () => 1024,
+    importPaths: async () => 1024,
     exportFile: async () => 1024,
     previewFile: async () => ({
       mime: "text/plain",
@@ -339,6 +349,7 @@ function createBrowserMockBackend(): Backend {
     touchActivity: async () => undefined,
     pickFolder: async () => "/synthetic/new-vault",
     pickFileToImport: async () => "/synthetic/sample.txt",
+    pickFilesToImport: async () => ["/synthetic/sample.txt"],
     pickExportDestination: async (name) => `/synthetic/export/${name}`,
   };
 }
