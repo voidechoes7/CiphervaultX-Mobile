@@ -79,9 +79,33 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
     onOpenChange(nextOpen);
   };
 
+  const isMobile =
+    typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  React.useEffect(() => {
+    if (open && isMobile && !path) {
+      void backend
+        .defaultVaultPath(name.trim() || "Vault")
+        .then((p) => setPath((prev) => prev || p))
+        .catch(() => undefined);
+    }
+  }, [open, isMobile, path, name]);
+
   const handlePickFolder = async () => {
+    setError(null);
     const picked = await backend.pickFolder("Select empty folder for new vault");
-    if (picked) setPath(picked);
+    if (picked) {
+      setPath(picked);
+      return;
+    }
+    if (isMobile) {
+      try {
+        const autoPath = await backend.defaultVaultPath(name.trim() || "Vault");
+        setPath(autoPath);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -248,9 +272,14 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                   />
                   <Button type="button" variant="outline" onClick={handlePickFolder}>
                     <FolderOpen className="h-4 w-4" />
-                    Browse
+                    {isMobile ? "App Folder" : "Browse"}
                   </Button>
                 </div>
+                {isMobile && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Android &amp; iOS store vaults inside private app storage automatically.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

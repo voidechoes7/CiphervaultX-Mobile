@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,14 @@ use serde::{Deserialize, Serialize};
 const APP_DIR_NAME: &str = "ciphervaultx";
 const VAULTS_FILE: &str = "vaults.json";
 const SETTINGS_FILE: &str = "settings.json";
+
+static APP_BASE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Initialize the platform-guaranteed writable app data directory from Tauri's
+/// `PathResolver` (essential on Android & iOS where `dirs::config_dir()` is `None`).
+pub fn init_base_dir(dir: PathBuf) {
+    let _ = APP_BASE_DIR.set(dir);
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnownVault {
@@ -31,8 +40,29 @@ impl Default for AppSettings {
 }
 
 pub fn cfg_dir() -> Result<PathBuf, String> {
-    let base = dirs::config_dir().ok_or_else(|| "unable to locate config directory".to_string())?;
-    let dir = base.join(APP_DIR_NAME);
+    let dir = if let Some(base) = APP_BASE_DIR.get() {
+        base.clone()
+    } else {
+        let base =
+            dirs::config_dir().ok_or_else(|| "unable to locate config directory".to_string())?;
+        base.join(APP_DIR_NAME)
+    };
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    Ok(dir)
+}
+
+pub fn default_vaults_root() -> Result<PathBuf, String> {
+    let dir = cfg_dir()?.join("vaults");
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    Ok(dir)
+}
+
+pub fn default_exports_root() -> Result<PathBuf, String> {
+    let dir = cfg_dir()?.join("exports");
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     }

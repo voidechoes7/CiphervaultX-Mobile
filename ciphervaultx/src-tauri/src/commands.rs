@@ -68,6 +68,52 @@ pub async fn generate_access_gate_hash(passphrase: String) -> Result<String, Str
     .map_err(|_| "background task failed".to_string())?
 }
 
+/// Create and return an empty, writable vault directory inside the app's
+/// platform-managed storage root (essential on Android & iOS where native
+/// directory pickers are unavailable).
+#[tauri::command]
+pub fn default_vault_path(name: Option<String>) -> Result<String, String> {
+    let root = registry::default_vaults_root()?;
+    let raw = name.unwrap_or_else(|| "vault".to_string());
+    let sanitized: String = raw
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let base_name = if sanitized.is_empty() {
+        "vault".to_string()
+    } else {
+        sanitized
+    };
+
+    let mut candidate = root.join(&base_name);
+    let mut suffix = 2u32;
+    while candidate.exists()
+        && std::fs::read_dir(&candidate)
+            .map(|mut rd| rd.next().is_some())
+            .unwrap_or(true)
+    {
+        candidate = root.join(format!("{base_name}-{suffix}"));
+        suffix += 1;
+    }
+    std::fs::create_dir_all(&candidate).map_err(|e| e.to_string())?;
+    Ok(candidate.to_string_lossy().to_string())
+}
+
+/// Return a writable export directory inside the app's managed storage root
+/// for mobile platforms where desktop save-file dialogs are unavailable.
+#[tauri::command]
+pub fn default_export_dir() -> Result<String, String> {
+    let root = registry::default_exports_root()?;
+    Ok(root.to_string_lossy().to_string())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultInfo {
     pub id: String,

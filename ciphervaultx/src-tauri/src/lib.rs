@@ -16,6 +16,14 @@ pub fn run() {
         .manage(AppState::new())
         .setup(|app| {
             let handle = app.handle().clone();
+            #[cfg(mobile)]
+            if let Ok(base) = app
+                .path()
+                .app_local_data_dir()
+                .or_else(|_| app.path().app_data_dir())
+            {
+                registry::init_base_dir(base);
+            }
             let app_state = app.state::<AppState>().inner().clone();
             state::spawn_autolock_task(handle, app_state);
             Ok(())
@@ -25,6 +33,8 @@ pub fn run() {
             commands::unlock_app_gate,
             commands::lock_app_gate,
             commands::generate_access_gate_hash,
+            commands::default_vault_path,
+            commands::default_export_dir,
             commands::list_vaults,
             commands::create_vault,
             commands::register_existing_vault,

@@ -147,6 +147,8 @@ export interface Backend {
   closeCryptomatorVault(): Promise<boolean>;
   listCryptomatorDir(path: string): Promise<VaultEntry[]>;
   exportCryptomatorFile(srcVaultPath: string, dstPath: string): Promise<number>;
+  defaultVaultPath(name?: string): Promise<string>;
+  defaultExportDir(): Promise<string>;
   pickFolder(title: string): Promise<string | null>;
   pickFileToImport(): Promise<string | null>;
   pickFilesToImport(): Promise<string[]>;
@@ -238,22 +240,55 @@ const tauriBackend: Backend = {
   listCryptomatorDir: (path) => invoke<VaultEntry[]>("list_cryptomator_dir", { path }),
   exportCryptomatorFile: (srcVaultPath, dstPath) =>
     invoke<number>("export_cryptomator_file", { srcVaultPath, dstPath }),
+  defaultVaultPath: (name) => invoke<string>("default_vault_path", { name: name ?? null }),
+  defaultExportDir: () => invoke<string>("default_export_dir"),
   pickFolder: async (title) => {
-    const res = await open({ directory: true, multiple: false, title });
-    return typeof res === "string" ? res : null;
+    try {
+      const res = await open({ directory: true, multiple: false, title });
+      return typeof res === "string" ? res : null;
+    } catch {
+      return null;
+    }
   },
   pickFileToImport: async () => {
-    const res = await open({ directory: false, multiple: false, title: "Select file to encrypt" });
-    return typeof res === "string" ? res : null;
+    try {
+      const res = await open({
+        directory: false,
+        multiple: false,
+        title: "Select file to encrypt",
+      });
+      return typeof res === "string" ? res : null;
+    } catch {
+      return null;
+    }
   },
   pickFilesToImport: async () => {
-    const res = await open({ directory: false, multiple: true, title: "Select files to encrypt" });
-    if (Array.isArray(res)) return res;
-    return typeof res === "string" ? [res] : [];
+    try {
+      const res = await open({
+        directory: false,
+        multiple: true,
+        title: "Select files to encrypt",
+      });
+      if (Array.isArray(res)) return res;
+      return typeof res === "string" ? [res] : [];
+    } catch {
+      return [];
+    }
   },
   pickExportDestination: async (defaultName) => {
-    const res = await save({ defaultPath: defaultName, title: "Export decrypted copy" });
-    return typeof res === "string" ? res : null;
+    try {
+      const res = await save({ defaultPath: defaultName, title: "Export decrypted copy" });
+      if (typeof res === "string") return res;
+    } catch {
+      // Mobile platforms do not support desktop save-file dialogs; fall back to app exports dir.
+      try {
+        const dir = await invoke<string>("default_export_dir");
+        return `${dir}/${defaultName}`;
+      } catch {
+        return null;
+      }
+    }
+    return null;
   },
 };
 
@@ -420,6 +455,8 @@ function createBrowserMockBackend(): Backend {
     closeCryptomatorVault: async () => true,
     listCryptomatorDir: async () => [],
     exportCryptomatorFile: async () => 1024,
+    defaultVaultPath: async (name) => `/synthetic/app-vaults/${name || "vault"}`,
+    defaultExportDir: async () => "/synthetic/app-exports",
     pickFolder: async () => "/synthetic/new-vault",
     pickFileToImport: async () => "/synthetic/sample.txt",
     pickFilesToImport: async () => ["/synthetic/sample.txt"],

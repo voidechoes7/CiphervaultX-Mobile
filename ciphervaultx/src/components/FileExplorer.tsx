@@ -239,8 +239,18 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   const handleExportDir = async (entry: VaultEntry) => {
     setError(null);
-    const dstParent = await backend.pickFolder(`Select destination folder for "${entry.name}"`);
-    if (!dstParent) return;
+    let dstParent = await backend.pickFolder(`Select destination folder for "${entry.name}"`);
+    if (!dstParent) {
+      const isMobile =
+        typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (!isMobile) return;
+      try {
+        dstParent = await backend.defaultExportDir();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
     try {
       await backend.exportDir(vault.id, entry.path, dstParent);
     } catch (err) {
