@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -6,6 +7,7 @@ use cvz_core::cryptomator::CryptomatorVault;
 use cvz_core::Vault;
 use tauri::{AppHandle, Emitter};
 
+use crate::gate;
 use crate::registry;
 use crate::webdav::{MountHandle, MountInfo};
 
@@ -15,6 +17,7 @@ pub struct AppState {
     mounts: Arc<RwLock<HashMap<String, MountHandle>>>,
     cryptomator: Arc<RwLock<Option<Arc<CryptomatorVault>>>>,
     last_activity: Arc<RwLock<Instant>>,
+    gate_unlocked: Arc<AtomicBool>,
 }
 
 impl Default for AppState {
@@ -30,10 +33,32 @@ impl AppState {
             mounts: Arc::new(RwLock::new(HashMap::new())),
             cryptomator: Arc::new(RwLock::new(None)),
             last_activity: Arc::new(RwLock::new(Instant::now())),
+            gate_unlocked: Arc::new(AtomicBool::new(!gate::is_gate_configured())),
+        }
+    }
+
+    pub fn is_gate_unlocked(&self) -> bool {
+        !gate::is_gate_configured() || self.gate_unlocked.load(Ordering::SeqCst)
+    }
+
+    pub fn set_gate_unlocked(&self, unlocked: bool) {
+        self.touch();
+        if gate::is_gate_configured() {
+            self.gate_unlocked.store(unlocked, Ordering::SeqCst);
+        }
+    }
+
+    pub fn lock_gate(&self) {
+        self.lock_all();
+        if gate::is_gate_configured() {
+            self.gate_unlocked.store(false, Ordering::SeqCst);
         }
     }
 
     pub fn set_cryptomator(&self, vault: CryptomatorVault) -> Result<(), String> {
+        if !self.is_gate_unlocked() {
+            return Err("Private Access Gate is locked".to_string());
+        }
         self.touch();
         let mut guard = self
             .cryptomator
@@ -44,6 +69,9 @@ impl AppState {
     }
 
     pub fn get_cryptomator(&self) -> Result<Arc<CryptomatorVault>, String> {
+        if !self.is_gate_unlocked() {
+            return Err("Private Access Gate is locked".to_string());
+        }
         self.touch();
         let guard = self
             .cryptomator
@@ -75,6 +103,9 @@ impl AppState {
     }
 
     pub fn insert_session(&self, id: String, vault: Vault) -> Result<(), String> {
+        if !self.is_gate_unlocked() {
+            return Err("Private Access Gate is locked".to_string());
+        }
         self.touch();
         let mut map = self
             .sessions
@@ -85,6 +116,9 @@ impl AppState {
     }
 
     pub fn get_session(&self, id: &str) -> Result<Arc<RwLock<Vault>>, String> {
+        if !self.is_gate_unlocked() {
+            return Err("Private Access Gate is locked".to_string());
+        }
         self.touch();
         let map = self
             .sessions
@@ -168,6 +202,10 @@ pub fn spawn_autolock_task(app: AppHandle, state: AppState) {
                 let locked_ids = state.lock_all();
                 if !locked_ids.is_empty() {
                     let _ = app.emit("vault-auto-locked", locked_ids);
+                }
+                if gate::is_gate_configured() && state.is_gate_unlocked() {
+                    state.lock_gate();
+                    let _ = app.emit("app-gate-locked", ());
                 }
             }
         }

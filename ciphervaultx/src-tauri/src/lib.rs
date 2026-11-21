@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod commands;
+pub mod gate;
 pub mod registry;
 pub mod state;
 pub mod webdav;
@@ -20,6 +21,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_app_gate_status,
+            commands::unlock_app_gate,
+            commands::lock_app_gate,
+            commands::generate_access_gate_hash,
             commands::list_vaults,
             commands::create_vault,
             commands::register_existing_vault,

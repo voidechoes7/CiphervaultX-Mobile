@@ -9,10 +9,64 @@ use cvz_core::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
+use crate::gate::{self, AppGateStatus};
 use crate::registry::{self, AppSettings, KnownVault};
 use crate::state::AppState;
 
 const MAX_PREVIEW_BYTES: u64 = 12 * 1024 * 1024;
+
+fn current_gate_status(state: &AppState) -> AppGateStatus {
+    AppGateStatus {
+        enabled: gate::is_gate_configured(),
+        unlocked: state.is_gate_unlocked(),
+        authorized_keys: gate::authorized_key_count(),
+    }
+}
+
+fn require_gate(state: &AppState) -> Result<(), String> {
+    if !state.is_gate_unlocked() {
+        return Err("Private Access Gate is locked. Unlock the application first.".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_app_gate_status(state: State<'_, AppState>) -> AppGateStatus {
+    current_gate_status(&state)
+}
+
+#[tauri::command]
+pub async fn unlock_app_gate(
+    state: State<'_, AppState>,
+    passphrase: String,
+) -> Result<AppGateStatus, String> {
+    if !gate::is_gate_configured() {
+        return Ok(current_gate_status(&state));
+    }
+    let ok = tauri::async_runtime::spawn_blocking(move || gate::verify_passphrase(&passphrase))
+        .await
+        .map_err(|_| "background task failed".to_string())?;
+    if !ok {
+        return Err("Invalid access passphrase".to_string());
+    }
+    state.set_gate_unlocked(true);
+    Ok(current_gate_status(&state))
+}
+
+#[tauri::command]
+pub fn lock_app_gate(state: State<'_, AppState>) -> AppGateStatus {
+    state.lock_gate();
+    current_gate_status(&state)
+}
+
+#[tauri::command]
+pub async fn generate_access_gate_hash(passphrase: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cvz_core::kdf::generate_access_gate_hash(&passphrase).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "background task failed".to_string())?
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultInfo {
@@ -46,6 +100,9 @@ pub struct PreviewPayload {
 
 #[tauri::command]
 pub fn list_vaults(state: State<'_, AppState>) -> Vec<VaultInfo> {
+    if !state.is_gate_unlocked() {
+        return Vec::new();
+    }
     registry::load()
         .into_iter()
         .map(|kv| {
@@ -79,6 +136,7 @@ pub async fn create_vault(
     password: String,
     custom_kdf: Option<Argon2Params>,
 ) -> Result<CreateVaultResult, String> {
+    require_gate(&state)?;
     let root = PathBuf::from(&path);
     let params = custom_kdf.unwrap_or_else(|| Argon2Params::for_profile(kdf_profile));
     params.validate().map_err(|e| e.to_string())?;
@@ -608,12 +666,14 @@ pub fn touch_activity(state: State<'_, AppState>) {
 
 #[tauri::command]
 pub async fn encrypt_standalone_file(
+    state: State<'_, AppState>,
     src_path: String,
     dst_path: String,
     password: String,
     suite: CipherSuite,
     kdf_profile: KdfProfile,
 ) -> Result<u64, String> {
+    require_gate(&state)?;
     let src = PathBuf::from(src_path);
     let dst = PathBuf::from(dst_path);
     let params = Argon2Params::for_profile(kdf_profile);
@@ -627,10 +687,12 @@ pub async fn encrypt_standalone_file(
 
 #[tauri::command]
 pub async fn decrypt_standalone_file(
+    state: State<'_, AppState>,
     src_path: String,
     dst_path: String,
     password: String,
 ) -> Result<u64, String> {
+    require_gate(&state)?;
     let src = PathBuf::from(src_path);
     let dst = PathBuf::from(dst_path);
     tauri::async_runtime::spawn_blocking(move || {
@@ -647,6 +709,7 @@ pub async fn open_cryptomator_vault(
     path: String,
     password: String,
 ) -> Result<cvz_core::cryptomator::CryptomatorVaultInfo, String> {
+    require_gate(&state)?;
     let root = PathBuf::from(path);
     let cm = tauri::async_runtime::spawn_blocking(move || {
         cvz_core::cryptomator::CryptomatorVault::open(&root, &password).map_err(|e| e.to_string())

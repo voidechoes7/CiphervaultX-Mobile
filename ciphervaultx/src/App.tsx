@@ -1,7 +1,8 @@
 import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
-import { backend, isTauriRuntime, type VaultInfo } from "@/lib/api";
+import { backend, isTauriRuntime, type AppGateStatus, type VaultInfo } from "@/lib/api";
 import { applyTheme, isValidTheme, loadTheme, type ThemeId } from "@/lib/themes";
+import { AppAccessGate } from "./components/AppAccessGate";
 import { CreateVaultWizard } from "./components/CreateVaultWizard";
 import { FileExplorer } from "./components/FileExplorer";
 import { PasswordGeneratorView } from "./components/PasswordGeneratorView";
@@ -19,6 +20,7 @@ interface TransferEvent {
 }
 
 export const App: React.FC = () => {
+  const [gateStatus, setGateStatus] = React.useState<AppGateStatus | null>(null);
   const [vaults, setVaults] = React.useState<VaultInfo[]>([]);
   const [view, setView] = React.useState<ActiveView>({ kind: "dashboard" });
   const [theme, setTheme] = React.useState<ThemeId>(() => loadTheme());
@@ -33,7 +35,12 @@ export const App: React.FC = () => {
   }, []);
 
   React.useEffect(() => {
-    void refreshVaults();
+    void backend.getAppGateStatus().then((status) => {
+      setGateStatus(status);
+      if (!status.enabled || status.unlocked) {
+        void refreshVaults();
+      }
+    });
     void backend.getSettings().then((s) => {
       if (isValidTheme(s.theme)) {
         setTheme(s.theme);
@@ -47,6 +54,7 @@ export const App: React.FC = () => {
     if (!isTauriRuntime()) return;
     let unlistenProgress: (() => void) | undefined;
     let unlistenAutoLock: (() => void) | undefined;
+    let unlistenGateLock: (() => void) | undefined;
 
     void listen<TransferEvent>("transfer-progress", (event) => {
       const p = event.payload;
@@ -66,11 +74,47 @@ export const App: React.FC = () => {
       unlistenAutoLock = fn;
     });
 
+    void listen("app-gate-locked", () => {
+      void backend.getAppGateStatus().then(setGateStatus);
+      setVaults([]);
+      setView({ kind: "dashboard" });
+    }).then((fn) => {
+      unlistenGateLock = fn;
+    });
+
     return () => {
       unlistenProgress?.();
       unlistenAutoLock?.();
+      unlistenGateLock?.();
     };
   }, [refreshVaults]);
+
+  const handleLockAppGate = async () => {
+    const next = await backend.lockAppGate();
+    setGateStatus(next);
+    setVaults([]);
+    setView({ kind: "dashboard" });
+  };
+
+  if (gateStatus === null) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-background text-sm text-muted-foreground">
+        Initializing CipherVaultX…
+      </div>
+    );
+  }
+
+  if (gateStatus.enabled && !gateStatus.unlocked) {
+    return (
+      <AppAccessGate
+        status={gateStatus}
+        onUnlocked={(next) => {
+          setGateStatus(next);
+          void refreshVaults();
+        }}
+      />
+    );
+  }
 
   const handleAddExisting = async () => {
     const path = await backend.pickFolder("Select existing CVZ v1 vault folder");
@@ -168,8 +212,10 @@ export const App: React.FC = () => {
             theme={theme}
             autoLockMinutes={autoLockMinutes}
             vaults={vaults}
+            gateStatus={gateStatus}
             onThemeChange={handleThemeChange}
             onAutoLockChange={handleAutoLockChange}
+            onLockAppGate={() => void handleLockAppGate()}
           />
         )}
       </main>

@@ -74,7 +74,17 @@ export interface CryptomatorVaultInfo {
   cipher_combo: string;
 }
 
+export interface AppGateStatus {
+  enabled: boolean;
+  unlocked: boolean;
+  authorized_keys: number;
+}
+
 export interface Backend {
+  getAppGateStatus(): Promise<AppGateStatus>;
+  unlockAppGate(passphrase: string): Promise<AppGateStatus>;
+  lockAppGate(): Promise<AppGateStatus>;
+  generateAccessGateHash(passphrase: string): Promise<string>;
   listVaults(): Promise<VaultInfo[]>;
   createVault(args: {
     name: string;
@@ -147,6 +157,11 @@ export function isTauriRuntime(): boolean {
 }
 
 const tauriBackend: Backend = {
+  getAppGateStatus: () => invoke<AppGateStatus>("get_app_gate_status"),
+  unlockAppGate: (passphrase) => invoke<AppGateStatus>("unlock_app_gate", { passphrase }),
+  lockAppGate: () => invoke<AppGateStatus>("lock_app_gate"),
+  generateAccessGateHash: (passphrase) =>
+    invoke<string>("generate_access_gate_hash", { passphrase }),
   listVaults: () => invoke<VaultInfo[]>("list_vaults"),
   createVault: ({ name, path, suite, kdfProfile, password, customKdf }) =>
     invoke<CreateVaultResult>("create_vault", {
@@ -274,6 +289,11 @@ function createBrowserMockBackend(): Backend {
   ]);
 
   return {
+    getAppGateStatus: async () => ({ enabled: false, unlocked: true, authorized_keys: 0 }),
+    unlockAppGate: async () => ({ enabled: false, unlocked: true, authorized_keys: 0 }),
+    lockAppGate: async () => ({ enabled: false, unlocked: true, authorized_keys: 0 }),
+    generateAccessGateHash: async () =>
+      "$argon2id$v=19$m=65536,t=3,p=1$MOCKSALTBASE64NOPAD$MOCKHASHBASE64NOPAD",
     listVaults: async () => vaults.map((v) => ({ ...v })),
     createVault: async ({ name, path, suite }) => {
       const vault: VaultInfo = {
