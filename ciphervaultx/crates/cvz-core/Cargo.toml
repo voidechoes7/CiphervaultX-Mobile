@@ -33,6 +33,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # SHA-256 hashing (MIT OR Apache-2.0)
 sha2 = "0.10"
+# Cryptomator Vault Format 8 interoperability (all MIT OR Apache-2.0):
+# - scrypt: masterkey.cryptomator KDF
+# - aes-kw: RFC 3394 AES-256 key wrap/unwrap for Cryptomator master keys
+# - sha1: Cryptomator directory ID storage path hashing
+scrypt = "0.11"
+aes-kw = { version = "0.2", features = ["alloc"] }
+sha1 = "0.10"
 # Atomic temporary files (MIT OR Apache-2.0)
 tempfile = "3"
 # Typed error definitions (MIT OR Apache-2.0)

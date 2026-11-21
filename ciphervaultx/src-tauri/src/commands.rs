@@ -606,6 +606,90 @@ pub fn touch_activity(state: State<'_, AppState>) {
     state.touch();
 }
 
+#[tauri::command]
+pub async fn encrypt_standalone_file(
+    src_path: String,
+    dst_path: String,
+    password: String,
+    suite: CipherSuite,
+    kdf_profile: KdfProfile,
+) -> Result<u64, String> {
+    let src = PathBuf::from(src_path);
+    let dst = PathBuf::from(dst_path);
+    let params = Argon2Params::for_profile(kdf_profile);
+    tauri::async_runtime::spawn_blocking(move || {
+        cvz_core::standalone::encrypt_standalone_file(&src, &dst, &password, suite, params)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "background task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn decrypt_standalone_file(
+    src_path: String,
+    dst_path: String,
+    password: String,
+) -> Result<u64, String> {
+    let src = PathBuf::from(src_path);
+    let dst = PathBuf::from(dst_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        cvz_core::standalone::decrypt_standalone_file(&src, &dst, &password)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "background task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn open_cryptomator_vault(
+    state: State<'_, AppState>,
+    path: String,
+    password: String,
+) -> Result<cvz_core::cryptomator::CryptomatorVaultInfo, String> {
+    let root = PathBuf::from(path);
+    let cm = tauri::async_runtime::spawn_blocking(move || {
+        cvz_core::cryptomator::CryptomatorVault::open(&root, &password).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "background task failed".to_string())??;
+    let info = cm.info();
+    state.set_cryptomator(cm)?;
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn close_cryptomator_vault(state: State<'_, AppState>) -> bool {
+    state.close_cryptomator()
+}
+
+#[tauri::command]
+pub async fn list_cryptomator_dir(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<VaultEntry>, String> {
+    let cm = state.get_cryptomator()?;
+    tauri::async_runtime::spawn_blocking(move || cm.list_dir(&path).map_err(|e| e.to_string()))
+        .await
+        .map_err(|_| "background task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn export_cryptomator_file(
+    state: State<'_, AppState>,
+    src_vault_path: String,
+    dst_path: String,
+) -> Result<u64, String> {
+    let cm = state.get_cryptomator()?;
+    let dst = PathBuf::from(dst_path);
+    tauri::async_runtime::spawn_blocking(move || {
+        cm.export_file(&src_vault_path, &dst)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| "background task failed".to_string())?
+}
+
 fn guess_mime(path: &str) -> &'static str {
     let lower = path.to_lowercase();
     if lower.ends_with(".png") {

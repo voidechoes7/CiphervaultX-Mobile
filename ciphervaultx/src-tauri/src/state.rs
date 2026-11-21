@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use cvz_core::cryptomator::CryptomatorVault;
 use cvz_core::Vault;
 use tauri::{AppHandle, Emitter};
 
@@ -12,6 +13,7 @@ use crate::webdav::{MountHandle, MountInfo};
 pub struct AppState {
     sessions: Arc<RwLock<HashMap<String, Arc<RwLock<Vault>>>>>,
     mounts: Arc<RwLock<HashMap<String, MountHandle>>>,
+    cryptomator: Arc<RwLock<Option<Arc<CryptomatorVault>>>>,
     last_activity: Arc<RwLock<Instant>>,
 }
 
@@ -26,8 +28,37 @@ impl AppState {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             mounts: Arc::new(RwLock::new(HashMap::new())),
+            cryptomator: Arc::new(RwLock::new(None)),
             last_activity: Arc::new(RwLock::new(Instant::now())),
         }
+    }
+
+    pub fn set_cryptomator(&self, vault: CryptomatorVault) -> Result<(), String> {
+        self.touch();
+        let mut guard = self
+            .cryptomator
+            .write()
+            .map_err(|_| "cryptomator lock poisoned".to_string())?;
+        *guard = Some(Arc::new(vault));
+        Ok(())
+    }
+
+    pub fn get_cryptomator(&self) -> Result<Arc<CryptomatorVault>, String> {
+        self.touch();
+        let guard = self
+            .cryptomator
+            .read()
+            .map_err(|_| "cryptomator lock poisoned".to_string())?;
+        guard
+            .clone()
+            .ok_or_else(|| "no Cryptomator vault is currently open".to_string())
+    }
+
+    pub fn close_cryptomator(&self) -> bool {
+        self.cryptomator
+            .write()
+            .map(|mut g| g.take().is_some())
+            .unwrap_or(false)
     }
 
     pub fn touch(&self) {
@@ -110,6 +141,7 @@ impl AppState {
     }
 
     pub fn lock_all(&self) -> Vec<String> {
+        self.close_cryptomator();
         if let Ok(mut mounts) = self.mounts.write() {
             for (_, mut h) in mounts.drain() {
                 h.unmount();

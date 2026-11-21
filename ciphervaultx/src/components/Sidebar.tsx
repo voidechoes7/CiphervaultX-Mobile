@@ -1,5 +1,5 @@
 import * as React from "react";
-import { KeyRound, Lock, Plus, Settings, Unlock } from "lucide-react";
+import { FileArchive, KeyRound, Lock, Plus, Settings, Unlock } from "lucide-react";
 import type { VaultInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -8,6 +8,7 @@ import { Separator } from "./ui/separator";
 export type ActiveView =
   | { kind: "dashboard" }
   | { kind: "explorer"; vaultId: string }
+  | { kind: "tools" }
   | { kind: "generator" }
   | { kind: "settings" };
 
@@ -114,6 +115,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Lock All Vaults
           </Button>
         )}
+        <Button
+          variant={view.kind === "tools" ? "secondary" : "ghost"}
+          size="sm"
+          className="w-full justify-start"
+          onClick={() => onSelectView({ kind: "tools" })}
+        >
+          <FileArchive className="h-4 w-4" />
+          File Locker &amp; Cryptomator
+        </Button>
         <Button
           variant={view.kind === "generator" ? "secondary" : "ghost"}
           size="sm"

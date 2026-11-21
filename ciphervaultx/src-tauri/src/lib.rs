@@ -48,6 +48,12 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::touch_activity,
+            commands::encrypt_standalone_file,
+            commands::decrypt_standalone_file,
+            commands::open_cryptomator_vault,
+            commands::close_cryptomator_vault,
+            commands::list_cryptomator_dir,
+            commands::export_cryptomator_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Fortress CipherVaultX");

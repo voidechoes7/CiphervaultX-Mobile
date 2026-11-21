@@ -7,6 +7,7 @@ import { FileExplorer } from "./components/FileExplorer";
 import { PasswordGeneratorView } from "./components/PasswordGeneratorView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar, type ActiveView } from "./components/Sidebar";
+import { ToolsView } from "./components/ToolsView";
 import { UnlockDialog } from "./components/UnlockDialog";
 import { VaultDashboard } from "./components/VaultDashboard";
 
@@ -159,6 +160,8 @@ export const App: React.FC = () => {
         )}
 
         {view.kind === "generator" && <PasswordGeneratorView />}
+
+        {view.kind === "tools" && <ToolsView />}
 
         {view.kind === "settings" && (
           <SettingsView

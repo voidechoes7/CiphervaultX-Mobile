@@ -68,6 +68,12 @@ export interface CustomArgon2Params {
   p_cost: number;
 }
 
+export interface CryptomatorVaultInfo {
+  path: string;
+  format: number;
+  cipher_combo: string;
+}
+
 export interface Backend {
   listVaults(): Promise<VaultInfo[]>;
   createVault(args: {
@@ -114,6 +120,22 @@ export interface Backend {
   getSettings(): Promise<AppSettings>;
   updateSettings(settings: AppSettings): Promise<void>;
   touchActivity(): Promise<void>;
+  encryptStandaloneFile(args: {
+    srcPath: string;
+    dstPath: string;
+    password: string;
+    suite: CipherSuite;
+    kdfProfile: KdfProfile;
+  }): Promise<number>;
+  decryptStandaloneFile(args: {
+    srcPath: string;
+    dstPath: string;
+    password: string;
+  }): Promise<number>;
+  openCryptomatorVault(path: string, password: string): Promise<CryptomatorVaultInfo>;
+  closeCryptomatorVault(): Promise<boolean>;
+  listCryptomatorDir(path: string): Promise<VaultEntry[]>;
+  exportCryptomatorFile(srcVaultPath: string, dstPath: string): Promise<number>;
   pickFolder(title: string): Promise<string | null>;
   pickFileToImport(): Promise<string | null>;
   pickFilesToImport(): Promise<string[]>;
@@ -182,6 +204,22 @@ const tauriBackend: Backend = {
   getSettings: () => invoke<AppSettings>("get_settings"),
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
   touchActivity: () => invoke<void>("touch_activity"),
+  encryptStandaloneFile: ({ srcPath, dstPath, password, suite, kdfProfile }) =>
+    invoke<number>("encrypt_standalone_file", {
+      srcPath,
+      dstPath,
+      password,
+      suite,
+      kdfProfile,
+    }),
+  decryptStandaloneFile: ({ srcPath, dstPath, password }) =>
+    invoke<number>("decrypt_standalone_file", { srcPath, dstPath, password }),
+  openCryptomatorVault: (path, password) =>
+    invoke<CryptomatorVaultInfo>("open_cryptomator_vault", { path, password }),
+  closeCryptomatorVault: () => invoke<boolean>("close_cryptomator_vault"),
+  listCryptomatorDir: (path) => invoke<VaultEntry[]>("list_cryptomator_dir", { path }),
+  exportCryptomatorFile: (srcVaultPath, dstPath) =>
+    invoke<number>("export_cryptomator_file", { srcVaultPath, dstPath }),
   pickFolder: async (title) => {
     const res = await open({ directory: true, multiple: false, title });
     return typeof res === "string" ? res : null;
@@ -347,6 +385,17 @@ function createBrowserMockBackend(): Backend {
       settings = { ...next };
     },
     touchActivity: async () => undefined,
+    encryptStandaloneFile: async () => 2048,
+    decryptStandaloneFile: async () => 2048,
+    openCryptomatorVault: async (path) => ({
+      path,
+      format: 8,
+      cipher_combo: "SIV_GCM",
+      shortening_threshold: 220,
+    }),
+    closeCryptomatorVault: async () => true,
+    listCryptomatorDir: async () => [],
+    exportCryptomatorFile: async () => 1024,
     pickFolder: async () => "/synthetic/new-vault",
     pickFileToImport: async () => "/synthetic/sample.txt",
     pickFilesToImport: async () => ["/synthetic/sample.txt"],

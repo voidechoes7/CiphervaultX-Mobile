@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod cryptomator;
 pub mod error;
 pub mod fsio;
 pub mod kdf;
@@ -11,6 +12,7 @@ pub mod pq;
 pub mod recovery;
 pub mod seal;
 pub mod secret;
+pub mod standalone;
 pub mod stream;
 pub mod vault;
 
