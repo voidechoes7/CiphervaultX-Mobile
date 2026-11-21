@@ -1,0 +1,16 @@
+PROPRIETARY SOFTWARE — ALL RIGHTS RESERVED
+
+Copyright (c) 2026 CipherVaultX / Fortress Author. All rights reserved.
+
+This software, its source code, compiled binaries, cryptographic format
+definitions, artwork, and accompanying documentation are proprietary and
+confidential, intended strictly for private personal use by the copyright
+holder and explicitly authorized individuals.
+
+No permission is granted to copy, modify, redistribute, sublicense, sell,
+reverse engineer, or use this software without prior written authorization
+from the copyright holder.
+
+Third-party open-source dependencies remain subject to their respective
+licenses (MIT / Apache-2.0 / BSD-3-Clause) as declared in Cargo.toml and
+package.json.

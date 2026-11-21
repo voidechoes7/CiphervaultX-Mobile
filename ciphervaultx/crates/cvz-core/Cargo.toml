@@ -1,0 +1,59 @@
+[package]
+name = "cvz-core"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish = false
+description = "Core CVZ v1 encrypted vault library (pre-audit)"
+
+[features]
+default = []
+pq = ["dep:ml-kem", "dep:x25519-dalek"]
+
+[dependencies]
+# AES-256-GCM AEAD (MIT OR Apache-2.0)
+aes-gcm = "0.10"
+# AES-SIV-CMAC-512 deterministic filename encryption (MIT OR Apache-2.0)
+aes-siv = "0.7"
+# Argon2id password KDF (MIT OR Apache-2.0)
+argon2 = "0.5"
+# Base64url encoding without padding (MIT OR Apache-2.0)
+base64 = "0.22"
+# XChaCha20-Poly1305 AEAD (MIT OR Apache-2.0)
+chacha20poly1305 = "0.10"
+# BASE32_NOPAD encoding for directory storage paths and recovery key display (MIT)
+data-encoding = "2.6"
+# HKDF-SHA256 subkey derivation (MIT OR Apache-2.0)
+hkdf = "0.12"
+# HMAC-SHA256 directory path hashing (MIT OR Apache-2.0)
+hmac = "0.12"
+# OS CSPRNG (MIT OR Apache-2.0)
+rand_core = { version = "0.6", features = ["getrandom"] }
+# Config serialization (MIT OR Apache-2.0)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# SHA-256 hashing (MIT OR Apache-2.0)
+sha2 = "0.10"
+# Cryptomator Vault Format 8 interoperability (all MIT OR Apache-2.0):
+# - scrypt: masterkey.cryptomator KDF
+# - aes-kw: RFC 3394 AES-256 key wrap/unwrap for Cryptomator master keys
+# - sha1: Cryptomator directory ID storage path hashing
+scrypt = "0.11"
+aes-kw = { version = "0.2", features = ["alloc"] }
+sha1 = "0.10"
+# Atomic temporary files (MIT OR Apache-2.0)
+tempfile = "3"
+# Typed error definitions (MIT OR Apache-2.0)
+thiserror = "2"
+# Unicode NFC filename normalization (MIT OR Apache-2.0)
+unicode-normalization = "0.1"
+# Zeroization of key material on drop (MIT OR Apache-2.0)
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Optional post-quantum hybrid KEM (OFF by default; pre-1.0, unaudited)
+# ml-kem (MIT OR Apache-2.0), x25519-dalek (BSD-3-Clause)
+ml-kem = { version = "0.2", optional = true }
+x25519-dalek = { version = "2", features = ["static_secrets"], optional = true }
+
+[dev-dependencies]
+sha2 = "0.10"

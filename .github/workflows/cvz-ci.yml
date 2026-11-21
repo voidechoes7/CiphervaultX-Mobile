@@ -1,0 +1,247 @@
+name: Fortress CipherVaultX CI (CVZ v1)
+
+on:
+  push:
+    branches: ["feat/cvz-v1", "main", "release-apk"]
+    paths:
+      - "ciphervaultx/**"
+      - ".github/workflows/cvz-ci.yml"
+  pull_request:
+    paths:
+      - "ciphervaultx/**"
+      - ".github/workflows/cvz-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cvz-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CVZ_PRIVATE_ACCESS_HASH: ${{ secrets.CVZ_PRIVATE_ACCESS_HASH }}
+
+jobs:
+  frontend:
+    name: Frontend (Lint, Test, Build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ciphervaultx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install
+      - name: Run Vitest
+        run: npm test
+      - name: Build TypeScript & Vite bundle
+        run: npm run build
+
+  rust-linux:
+    name: Rust Linux (Fmt, Clippy, Tests, Workspace Build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ciphervaultx
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build frontend dist (required by tauri::generate_context!)
+        run: |
+          npm install
+          npm run build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ciphervaultx
+      - name: Format check
+        run: set -o pipefail; cargo fmt --all -- --check 2>&1 | tee /tmp/ci-step.log
+      - name: Clippy (-D warnings)
+        run: set -o pipefail; cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee /tmp/ci-step.log
+      - name: Test cvz-core (--all-features, dev)
+        run: set -o pipefail; cargo test -p cvz-core --all-features 2>&1 | tee /tmp/ci-step.log
+      - name: Test cvz-core (--all-features, release)
+        run: set -o pipefail; cargo test -p cvz-core --release --all-features 2>&1 | tee /tmp/ci-step.log
+      - name: Build workspace
+        run: set -o pipefail; cargo build --workspace 2>&1 | tee /tmp/ci-step.log
+
+  rust-windows:
+    name: Windows (Build, Tests, NSIS .exe Bundle)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ciphervaultx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install frontend dependencies and build
+        run: |
+          npm install
+          npm run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ciphervaultx
+      - name: Build workspace
+        shell: bash
+        run: set -o pipefail; cargo build --workspace
+      - name: Test cvz-core (--all-features)
+        shell: bash
+        run: set -o pipefail; cargo test -p cvz-core --all-features
+      - name: Build Windows NSIS installer (.exe)
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tauri build --bundles nsis
+          cp "target/release/bundle/nsis/Fortress CipherVaultX_0.1.0_x64-setup.exe" ../Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
+          ls -lh ../Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
+      - name: Upload Windows Installer (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fortress-CipherVaultX-Windows-exe
+          path: Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
+
+  android-apk:
+    name: Android (Core Cross-Compile & Debug APK)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ciphervaultx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+      - name: Configure pre-installed Android SDK & NDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          NDK_DIR=$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$NDK_DIR" ]; then
+            yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" "ndk;26.3.11579264"
+            NDK_DIR="$SDK/ndk/26.3.11579264"
+          fi
+          echo "NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Install frontend dependencies & build
+        run: |
+          npm install
+          npm run build
+      - name: Initialize Tauri Android project & build debug APK
+        run: |
+          set -o pipefail
+          npx tauri android init --ci
+          npx tauri icon src-tauri/icons/icon.png
+          npx tauri android build --apk --debug --target aarch64
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk ../Fortress-CipherVaultX-v0.1.0-android-debug.apk
+          ls -lh ../Fortress-CipherVaultX-v0.1.0-android-debug.apk
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fortress-CipherVaultX-Android-apk
+          path: Fortress-CipherVaultX-v0.1.0-android-debug.apk
+
+  ios-ipa:
+    name: iOS (Core Cross-Compile & Unsigned IPA)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ciphervaultx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Install frontend dependencies & build
+        run: |
+          npm install
+          npm run build
+      - name: Initialize Tauri iOS project & build unsigned IPA
+        run: |
+          set -o pipefail
+          npx tauri ios init --ci 2>&1 | tee /tmp/ci-ios.log
+          npx tauri icon src-tauri/icons/icon.png 2>&1 | tee -a /tmp/ci-ios.log
+          PBX=$(find src-tauri/gen/apple -maxdepth 3 -name "project.pbxproj" | head -n 1)
+          echo "Patching unsigned build settings in: $PBX" | tee -a /tmp/ci-ios.log
+          python3 - "$PBX" <<'PY'
+          import sys
+          p = sys.argv[1]
+          txt = open(p).read()
+          txt = txt.replace(
+              "buildSettings = {",
+              "buildSettings = {\n\t\t\t\tCODE_SIGNING_ALLOWED = NO;\n\t\t\t\tCODE_SIGNING_REQUIRED = NO;\n\t\t\t\tCODE_SIGN_IDENTITY = \"\";",
+          )
+          open(p, "w").write(txt)
+          PY
+          npx tauri ios build --ci --debug --target aarch64 2>&1 | tee -a /tmp/ci-ios.log || true
+          APP_PATH=$(find src-tauri/gen/apple ~/Library/Developer/Xcode/DerivedData -name "*.app" \( -path "*Applications*" -o -path "*iphoneos*" \) 2>/dev/null | head -n 1)
+          echo "Built app bundle: $APP_PATH" | tee -a /tmp/ci-ios.log
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No compiled iOS .app bundle found" | tee -a /tmp/ci-ios.log
+            exit 1
+          fi
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry ../Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa Payload
+          ls -lh ../Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa
+      - name: Upload iOS Unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fortress-CipherVaultX-iOS-ipa
+          path: Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa
+      - name: Report iOS failure diagnostics
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          log = ""
+          if os.path.exists("/tmp/ci-ios.log"):
+              lines = open("/tmp/ci-ios.log", errors="replace").read().splitlines()
+              log = "\n".join(lines[-80:])
+          body = f"### CI failure: ios-ipa\n```\n{log}\n```"
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/commits/{os.environ['GITHUB_SHA']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          urllib.request.urlopen(req).read()
+          PY
