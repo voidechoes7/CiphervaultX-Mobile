@@ -1,6 +1,7 @@
 import * as React from "react";
-import { FileArchive, KeyRound, Lock, Plus, Settings, Unlock } from "lucide-react";
+import { FileArchive, KeyRound, Lock, Moon, Plus, Settings, Sun, Unlock } from "lucide-react";
 import type { VaultInfo } from "@/lib/api";
+import { resolveMode, type ThemeId } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
@@ -15,6 +16,8 @@ export type ActiveView =
 interface SidebarProps {
   vaults: VaultInfo[];
   view: ActiveView;
+  theme: ThemeId;
+  onQuickToggleTheme: () => void;
   onSelectView: (view: ActiveView) => void;
   onCreateVault: () => void;
   onLockAll: () => void;
@@ -23,24 +26,39 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   vaults,
   view,
+  theme,
+  onQuickToggleTheme,
   onSelectView,
   onCreateVault,
   onLockAll,
 }) => {
   const anyUnlocked = vaults.some((v) => v.unlocked);
+  const isDark = resolveMode(theme) === "dark";
 
   return (
     <aside className="surface-glass flex h-full w-64 shrink-0 flex-col border-r border-border">
-      <div className="flex items-center gap-2.5 px-5 py-5">
-        <img
-          src="/logo.png"
-          alt="Fortress CipherVaultX"
-          className="h-9 w-9 rounded-md border border-border object-cover"
-        />
-        <div>
-          <div className="text-sm font-semibold tracking-tight">Fortress</div>
-          <div className="text-[11px] text-muted-foreground">CipherVaultX · CVZ v1</div>
+      <div className="flex items-center justify-between gap-2 px-5 py-5">
+        <div className="flex items-center gap-2.5">
+          <img
+            src="/logo.png"
+            alt="Fortress CipherVaultX"
+            className="h-9 w-9 rounded-lg border border-primary/30 object-cover shadow-sm"
+          />
+          <div>
+            <div className="text-sm font-semibold tracking-tight">Fortress</div>
+            <div className="text-[11px] text-muted-foreground">CipherVaultX · v0.2.0</div>
+          </div>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={onQuickToggleTheme}
+          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          aria-label="Toggle light or dark theme"
+        >
+          {isDark ? <Sun className="h-4 w-4 text-primary" /> : <Moon className="h-4 w-4 text-primary" />}
+        </Button>
       </div>
 
       <Separator />

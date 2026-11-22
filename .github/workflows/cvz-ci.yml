@@ -114,16 +114,16 @@ jobs:
         run: |
           set -o pipefail
           npx tauri build --bundles nsis
-          cp "target/release/bundle/nsis/Fortress CipherVaultX_0.1.0_x64-setup.exe" ../Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
-          ls -lh ../Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
+          cp "target/release/bundle/nsis/Fortress CipherVaultX_0.2.0_x64-setup.exe" ../Fortress-CipherVaultX-v0.2.0-windows-x64-setup.exe
+          ls -lh ../Fortress-CipherVaultX-v0.2.0-windows-x64-setup.exe
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Windows-exe
-          path: Fortress-CipherVaultX-v0.1.0-windows-x64-setup.exe
+          path: Fortress-CipherVaultX-v0.2.0-windows-x64-setup.exe
 
   android-apk:
-    name: Android (Core Cross-Compile & Debug APK)
+    name: Android (Core Cross-Compile & Signed Upgradeable APK)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -137,6 +137,31 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "17"
+      - name: Restore persistent Android signing keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: cvz-android-persistent-keystore-v2
+      - name: Ensure consistent Android signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > ~/.android/debug.keystore
+            echo "Loaded Android keystore from GitHub Secret."
+          elif [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Fortress CipherVaultX, OU=Personal, O=CipherVaultX, L=Local, S=Local, C=US"
+            echo "Generated persistent Android keystore (cached for future in-place upgrades)."
+          else
+            echo "Reusing cached persistent Android keystore for seamless in-place upgrade."
+          fi
       - name: Configure pre-installed Android SDK & NDK
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
@@ -155,19 +180,32 @@ jobs:
         run: |
           npm install
           npm run build
-      - name: Initialize Tauri Android project & build debug APK
+      - name: Initialize Tauri Android project & build signed APK (v0.2.0)
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -o pipefail
           npx tauri android init --ci
           npx tauri icon src-tauri/icons/icon.png
+          python3 - <<'PY'
+          import os, re
+          gradle = "src-tauri/gen/android/app/build.gradle.kts"
+          if os.path.exists(gradle):
+              txt = open(gradle).read()
+              vcode = 20000 + int(os.environ.get("RUN_NUMBER", "1"))
+              txt = re.sub(r'versionCode\s*=\s*[^\n]+', f'versionCode = {vcode}', txt)
+              txt = re.sub(r'versionName\s*=\s*[^\n]+', 'versionName = "0.2.0"', txt)
+              open(gradle, "w").write(txt)
+              print(f"Patched Android versionCode={vcode}, versionName=0.2.0")
+          PY
           npx tauri android build --apk --debug --target aarch64
-          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk ../Fortress-CipherVaultX-v0.1.0-android-debug.apk
-          ls -lh ../Fortress-CipherVaultX-v0.1.0-android-debug.apk
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk ../Fortress-CipherVaultX-v0.2.0-android-signed.apk
+          ls -lh ../Fortress-CipherVaultX-v0.2.0-android-signed.apk
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Android-apk
-          path: Fortress-CipherVaultX-v0.1.0-android-debug.apk
+          path: Fortress-CipherVaultX-v0.2.0-android-signed.apk
 
   ios-ipa:
     name: iOS (Core Cross-Compile & Unsigned IPA)
@@ -214,13 +252,13 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -qry ../Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa Payload
-          ls -lh ../Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa
+          zip -qry ../Fortress-CipherVaultX-v0.2.0-ios-unsigned.ipa Payload
+          ls -lh ../Fortress-CipherVaultX-v0.2.0-ios-unsigned.ipa
       - name: Upload iOS Unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-iOS-ipa
-          path: Fortress-CipherVaultX-v0.1.0-ios-unsigned.ipa
+          path: Fortress-CipherVaultX-v0.2.0-ios-unsigned.ipa
       - name: Report iOS failure diagnostics
         if: failure()
         env:

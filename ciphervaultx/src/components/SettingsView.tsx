@@ -96,7 +96,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8 p-8">
+    <div className="mx-auto max-w-3xl space-y-8 p-4 md:p-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings &amp; Verification</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -143,7 +143,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        <div className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-sm">
           <div className="text-xs font-medium text-foreground">
             Offline Argon2id Access Hash Generator
           </div>
@@ -201,22 +201,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <Separator />
 
       <section className="space-y-4">
-        <h2 className="text-base font-medium">Theme</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div>
+          <h2 className="text-base font-medium">Themes (Dark &amp; Light)</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Choose from 10 curated dark, OLED, cyber, and daylight themes across Windows, Android,
+            and iOS.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {THEMES.map((t) => (
             <button
               key={t.id}
               type="button"
               onClick={() => handleSelectTheme(t.id)}
               className={cn(
-                "rounded-lg border p-3.5 text-left transition-colors",
+                "rounded-xl border p-3.5 text-left transition-all",
                 theme === t.id
-                  ? "border-primary bg-accent"
-                  : "border-border bg-card hover:bg-accent/40"
+                  ? "border-primary bg-accent shadow-sm ring-1 ring-primary/40"
+                  : "border-border bg-card hover:border-primary/40 hover:bg-accent/40"
               )}
             >
-              <div className="text-sm font-medium">{t.label}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{t.description}</div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">{t.label}</span>
+                <div className="flex items-center gap-1">
+                  {t.swatches.map((hex, i) => (
+                    <span
+                      key={`${t.id}-${i}`}
+                      className="h-3 w-3 rounded-full border border-border/80"
+                      style={{ backgroundColor: hex }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">{t.description}</span>
+              </div>
+              <div className="mt-2">
+                <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t.mode === "system" ? "Auto" : t.mode}
+                </span>
+              </div>
             </button>
           ))}
         </div>

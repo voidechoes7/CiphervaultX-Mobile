@@ -33,7 +33,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            theme: "obsidian-dark".to_string(),
+            theme: "neon-cyber".to_string(),
             auto_lock_minutes: 10,
         }
     }
