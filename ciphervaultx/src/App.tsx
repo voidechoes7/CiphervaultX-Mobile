@@ -11,6 +11,7 @@ import {
   type ThemeId,
 } from "@/lib/themes";
 import { cn } from "@/lib/utils";
+import { AddExistingVaultDialog } from "./components/AddExistingVaultDialog";
 import { AppAccessGate } from "./components/AppAccessGate";
 import { CreateVaultWizard } from "./components/CreateVaultWizard";
 import { FileExplorer } from "./components/FileExplorer";
@@ -35,6 +36,9 @@ export const App: React.FC = () => {
   const [theme, setTheme] = React.useState<ThemeId>(() => loadTheme());
   const [autoLockMinutes, setAutoLockMinutes] = React.useState<number>(10);
   const [wizardOpen, setWizardOpen] = React.useState(false);
+  const [addExistingOpen, setAddExistingOpen] = React.useState(false);
+  const [addExistingError, setAddExistingError] = React.useState<string | null>(null);
+  const [isMobilePlatform, setIsMobilePlatform] = React.useState(false);
   const [unlockTarget, setUnlockTarget] = React.useState<VaultInfo | null>(null);
   const [transfer, setTransfer] = React.useState<TransferEvent | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -62,6 +66,10 @@ export const App: React.FC = () => {
       }
       setAutoLockMinutes(s.auto_lock_minutes);
     });
+    void backend
+      .isMobile()
+      .then((mobile) => setIsMobilePlatform(mobile))
+      .catch(() => undefined);
   }, [refreshVaults]);
 
   React.useEffect(() => {
@@ -131,10 +139,20 @@ export const App: React.FC = () => {
   }
 
   const handleAddExisting = async () => {
+    setAddExistingError(null);
+    if (isMobilePlatform) {
+      setAddExistingOpen(true);
+      return;
+    }
     const path = await backend.pickFolder("Select existing CVZ v1 vault folder");
     if (!path) return;
-    await backend.registerExistingVault(path);
-    await refreshVaults();
+    try {
+      await backend.registerExistingVault(path);
+      await refreshVaults();
+    } catch (err) {
+      setAddExistingError(err instanceof Error ? err.message : String(err));
+      setAddExistingOpen(true);
+    }
   };
 
   const handleLockVault = async (vaultId: string) => {
@@ -393,6 +411,19 @@ export const App: React.FC = () => {
         onCreated={async (created) => {
           await refreshVaults();
           selectView({ kind: "explorer", vaultId: created.id });
+        }}
+      />
+
+      <AddExistingVaultDialog
+        open={addExistingOpen}
+        isMobile={isMobilePlatform}
+        initialError={addExistingError}
+        onOpenChange={(open) => {
+          setAddExistingOpen(open);
+          if (!open) setAddExistingError(null);
+        }}
+        onAdded={async () => {
+          await refreshVaults();
         }}
       />
 

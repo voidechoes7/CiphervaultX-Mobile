@@ -106,6 +106,55 @@ pub fn default_vault_path(name: Option<String>) -> Result<String, String> {
     Ok(candidate.to_string_lossy().to_string())
 }
 
+/// Return whether this binary was compiled for a mobile target (`Android` / `iOS`).
+#[tauri::command]
+pub fn is_mobile() -> bool {
+    cfg!(mobile)
+}
+
+/// Return the app's managed root directory where local vaults are stored.
+#[tauri::command]
+pub fn default_vaults_dir() -> Result<String, String> {
+    let root = registry::default_vaults_root()?;
+    Ok(root.to_string_lossy().to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredVault {
+    pub name: String,
+    pub path: String,
+    pub already_registered: bool,
+}
+
+/// Scan the app's managed vaults directory for existing CVZ v1 vault folders
+/// (directories containing `cvz.vault.json`) so mobile users can re-add vaults
+/// without a desktop directory picker.
+#[tauri::command]
+pub fn list_discovered_vaults() -> Result<Vec<DiscoveredVault>, String> {
+    let root = registry::default_vaults_root()?;
+    let registered = registry::load();
+    let mut found = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join(cvz_core::config::CONFIG_FILENAME).is_file() {
+                let path_str = path.to_string_lossy().to_string();
+                let already_registered = registered.iter().any(|v| v.path == path_str);
+                let name = registry::safe_folder_name(&path_str);
+                found.push(DiscoveredVault {
+                    name,
+                    path: path_str,
+                    already_registered,
+                });
+            }
+        }
+    }
+
+    found.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(found)
+}
+
 /// Return a writable export directory inside the app's managed storage root
 /// for mobile platforms where desktop save-file dialogs are unavailable.
 #[tauri::command]
@@ -217,10 +266,37 @@ pub async fn create_vault(
 
 #[tauri::command]
 pub fn register_existing_vault(name: Option<String>, path: String) -> Result<KnownVault, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Vault folder path cannot be empty.".to_string());
+    }
+    let mut folder = PathBuf::from(trimmed);
+    if folder.is_file()
+        && folder
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n == cvz_core::config::CONFIG_FILENAME)
+    {
+        if let Some(parent) = folder.parent() {
+            folder = parent.to_path_buf();
+        }
+    }
+    if !folder.is_dir() {
+        return Err(format!("Vault folder does not exist: {}", folder.display()));
+    }
+    if !folder.join(cvz_core::config::CONFIG_FILENAME).is_file() {
+        return Err(format!(
+            "No CVZ v1 vault found in '{}' (missing {}).",
+            folder.display(),
+            cvz_core::config::CONFIG_FILENAME
+        ));
+    }
+    let normalized = folder.to_string_lossy().to_string();
     let display = name
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or_else(|| registry::safe_folder_name(&path));
-    registry::add(display, path)
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| registry::safe_folder_name(&normalized));
+    registry::add(display, normalized)
 }
 
 #[tauri::command]

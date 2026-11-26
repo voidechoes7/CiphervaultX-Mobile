@@ -80,6 +80,12 @@ export interface AppGateStatus {
   authorized_keys: number;
 }
 
+export interface DiscoveredVault {
+  name: string;
+  path: string;
+  already_registered: boolean;
+}
+
 export interface Backend {
   getAppGateStatus(): Promise<AppGateStatus>;
   unlockAppGate(passphrase: string): Promise<AppGateStatus>;
@@ -147,7 +153,10 @@ export interface Backend {
   closeCryptomatorVault(): Promise<boolean>;
   listCryptomatorDir(path: string): Promise<VaultEntry[]>;
   exportCryptomatorFile(srcVaultPath: string, dstPath: string): Promise<number>;
+  isMobile(): Promise<boolean>;
   defaultVaultPath(name?: string): Promise<string>;
+  defaultVaultsDir(): Promise<string>;
+  listDiscoveredVaults(): Promise<DiscoveredVault[]>;
   defaultExportDir(): Promise<string>;
   pickFolder(title: string): Promise<string | null>;
   pickFileToImport(): Promise<string | null>;
@@ -240,7 +249,10 @@ const tauriBackend: Backend = {
   listCryptomatorDir: (path) => invoke<VaultEntry[]>("list_cryptomator_dir", { path }),
   exportCryptomatorFile: (srcVaultPath, dstPath) =>
     invoke<number>("export_cryptomator_file", { srcVaultPath, dstPath }),
+  isMobile: () => invoke<boolean>("is_mobile"),
   defaultVaultPath: (name) => invoke<string>("default_vault_path", { name: name ?? null }),
+  defaultVaultsDir: () => invoke<string>("default_vaults_dir"),
+  listDiscoveredVaults: () => invoke<DiscoveredVault[]>("list_discovered_vaults"),
   defaultExportDir: () => invoke<string>("default_export_dir"),
   pickFolder: async (title) => {
     try {
@@ -455,7 +467,12 @@ function createBrowserMockBackend(): Backend {
     closeCryptomatorVault: async () => true,
     listCryptomatorDir: async () => [],
     exportCryptomatorFile: async () => 1024,
+    isMobile: async () =>
+      typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent),
     defaultVaultPath: async (name) => `/synthetic/app-vaults/${name || "vault"}`,
+    defaultVaultsDir: async () => "/synthetic/app-vaults",
+    listDiscoveredVaults: async () =>
+      vaults.map((v) => ({ name: v.name, path: v.path, already_registered: true })),
     defaultExportDir: async () => "/synthetic/app-exports",
     pickFolder: async () => "/synthetic/new-vault",
     pickFileToImport: async () => "/synthetic/sample.txt",

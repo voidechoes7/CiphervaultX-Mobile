@@ -283,3 +283,51 @@ jobs:
           )
           urllib.request.urlopen(req).read()
           PY
+
+  publish-release:
+    name: Publish GitHub Release (v0.2.0-fortress)
+    runs-on: ubuntu-latest
+    needs: [frontend, rust-linux, rust-windows, android-apk, ios-ipa]
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Download Android APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Fortress-CipherVaultX-Android-apk
+          path: release-assets
+      - name: Download Windows NSIS .exe artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Fortress-CipherVaultX-Windows-exe
+          path: release-assets
+      - name: Download iOS IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Fortress-CipherVaultX-iOS-ipa
+          path: release-assets
+      - name: Verify direct installer assets (.apk, .exe, .ipa)
+        run: |
+          ls -lh release-assets/
+          test -f release-assets/Fortress-CipherVaultX-v0.2.0-android-signed.apk
+          test -f release-assets/Fortress-CipherVaultX-v0.2.0-windows-x64-setup.exe
+          test -f release-assets/Fortress-CipherVaultX-v0.2.0-ios-unsigned.ipa
+      - name: Publish direct installers to GitHub Release v0.2.0-fortress
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v0.2.0-fortress"
+          APK="release-assets/Fortress-CipherVaultX-v0.2.0-android-signed.apk"
+          EXE="release-assets/Fortress-CipherVaultX-v0.2.0-windows-x64-setup.exe"
+          IPA="release-assets/Fortress-CipherVaultX-v0.2.0-ios-unsigned.ipa"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" "$EXE" "$IPA" \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "$APK" "$EXE" "$IPA" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Fortress CipherVaultX v0.2.0" \
+              --notes "Direct installers (no .zip) for Android (.apk), Windows (.exe), and iOS (.ipa)."
+          fi
+

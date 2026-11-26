@@ -79,8 +79,17 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
     onOpenChange(nextOpen);
   };
 
-  const isMobile =
-    typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const [isMobile, setIsMobile] = React.useState(
+    () =>
+      typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  );
+
+  React.useEffect(() => {
+    void backend
+      .isMobile()
+      .then((mobile) => setIsMobile(mobile))
+      .catch(() => undefined);
+  }, []);
 
   React.useEffect(() => {
     if (open && isMobile && !path) {
