@@ -21,6 +21,7 @@ pub fn run() {
                 .path()
                 .app_local_data_dir()
                 .or_else(|_| app.path().app_data_dir())
+                .or_else(|_| app.path().document_dir())
             {
                 registry::init_base_dir(base);
             }
@@ -37,6 +38,9 @@ pub fn run() {
             commands::default_vault_path,
             commands::default_vaults_dir,
             commands::list_discovered_vaults,
+            commands::list_storage_roots,
+            commands::list_host_dir,
+            commands::create_host_dir,
             commands::default_export_dir,
             commands::list_vaults,
             commands::create_vault,

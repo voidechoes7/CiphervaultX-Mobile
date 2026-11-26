@@ -86,6 +86,89 @@ export interface DiscoveredVault {
   already_registered: boolean;
 }
 
+export interface StorageRoot {
+  label: string;
+  path: string;
+  readable: boolean;
+  kind: string;
+}
+
+export interface HostDirEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  is_cvz_vault: boolean;
+  is_cryptomator_vault: boolean;
+}
+
+export interface HostDirListing {
+  path: string;
+  parent: string | null;
+  is_empty: boolean;
+  is_cvz_vault: boolean;
+  is_cryptomator_vault: boolean;
+  entries: HostDirEntry[];
+}
+
+export interface PickFolderOptions {
+  requireEmptyFolder?: boolean;
+  suggestedSubfolder?: string;
+  highlightVaults?: "cvz" | "cryptomator";
+  initialPath?: string;
+}
+
+export interface DevicePickerRequest {
+  mode: "folder" | "file" | "files" | "save";
+  title: string;
+  defaultFileName?: string;
+  requireEmptyFolder?: boolean;
+  suggestedSubfolder?: string;
+  highlightVaults?: "cvz" | "cryptomator";
+  initialPath?: string;
+}
+
+export type DevicePickerHandler = (request: DevicePickerRequest) => Promise<string[] | null>;
+
+interface AndroidStorageBridge {
+  hasAllFilesAccess?: () => boolean;
+  requestAllFilesAccess?: () => boolean;
+  getExternalStorageRoot?: () => string;
+}
+
+declare global {
+  interface Window {
+    AndroidStorageBridge?: AndroidStorageBridge;
+  }
+}
+
+export function hasAndroidStorageBridge(): boolean {
+  return typeof window !== "undefined" && Boolean(window.AndroidStorageBridge);
+}
+
+export function hasAndroidAllFilesAccess(): boolean {
+  try {
+    return Boolean(window.AndroidStorageBridge?.hasAllFilesAccess?.());
+  } catch {
+    return false;
+  }
+}
+
+export function requestAndroidAllFilesAccess(): boolean {
+  try {
+    return Boolean(window.AndroidStorageBridge?.requestAllFilesAccess?.());
+  } catch {
+    return false;
+  }
+}
+
+let mobilePickerHandler: DevicePickerHandler | null = null;
+let cachedIsMobile: boolean | null = null;
+
+export function registerMobilePickerHandler(handler: DevicePickerHandler | null): void {
+  mobilePickerHandler = handler;
+}
+
 export interface Backend {
   getAppGateStatus(): Promise<AppGateStatus>;
   unlockAppGate(passphrase: string): Promise<AppGateStatus>;
@@ -157,8 +240,11 @@ export interface Backend {
   defaultVaultPath(name?: string): Promise<string>;
   defaultVaultsDir(): Promise<string>;
   listDiscoveredVaults(): Promise<DiscoveredVault[]>;
+  listStorageRoots(): Promise<StorageRoot[]>;
+  listHostDir(path: string): Promise<HostDirListing>;
+  createHostDir(parent: string, name: string): Promise<string>;
   defaultExportDir(): Promise<string>;
-  pickFolder(title: string): Promise<string | null>;
+  pickFolder(title: string, options?: PickFolderOptions): Promise<string | null>;
   pickFileToImport(): Promise<string | null>;
   pickFilesToImport(): Promise<string[]>;
   pickExportDestination(defaultName: string): Promise<string | null>;
@@ -249,20 +335,55 @@ const tauriBackend: Backend = {
   listCryptomatorDir: (path) => invoke<VaultEntry[]>("list_cryptomator_dir", { path }),
   exportCryptomatorFile: (srcVaultPath, dstPath) =>
     invoke<number>("export_cryptomator_file", { srcVaultPath, dstPath }),
-  isMobile: () => invoke<boolean>("is_mobile"),
+  isMobile: async () => {
+    if (cachedIsMobile !== null) return cachedIsMobile;
+    try {
+      cachedIsMobile = await invoke<boolean>("is_mobile");
+    } catch {
+      cachedIsMobile =
+        typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+    return cachedIsMobile;
+  },
   defaultVaultPath: (name) => invoke<string>("default_vault_path", { name: name ?? null }),
   defaultVaultsDir: () => invoke<string>("default_vaults_dir"),
   listDiscoveredVaults: () => invoke<DiscoveredVault[]>("list_discovered_vaults"),
+  listStorageRoots: () => invoke<StorageRoot[]>("list_storage_roots"),
+  listHostDir: (path) => invoke<HostDirListing>("list_host_dir", { path }),
+  createHostDir: (parent, name) => invoke<string>("create_host_dir", { parent, name }),
   defaultExportDir: () => invoke<string>("default_export_dir"),
-  pickFolder: async (title) => {
+  pickFolder: async (title, options) => {
+    if ((await tauriBackend.isMobile()) && mobilePickerHandler) {
+      const picked = await mobilePickerHandler({
+        mode: "folder",
+        title,
+        ...options,
+      });
+      return picked?.[0] ?? null;
+    }
     try {
       const res = await open({ directory: true, multiple: false, title });
       return typeof res === "string" ? res : null;
     } catch {
+      if (mobilePickerHandler) {
+        const picked = await mobilePickerHandler({
+          mode: "folder",
+          title,
+          ...options,
+        });
+        return picked?.[0] ?? null;
+      }
       return null;
     }
   },
   pickFileToImport: async () => {
+    if ((await tauriBackend.isMobile()) && mobilePickerHandler) {
+      const picked = await mobilePickerHandler({
+        mode: "file",
+        title: "Select file",
+      });
+      return picked?.[0] ?? null;
+    }
     try {
       const res = await open({
         directory: false,
@@ -275,6 +396,13 @@ const tauriBackend: Backend = {
     }
   },
   pickFilesToImport: async () => {
+    if ((await tauriBackend.isMobile()) && mobilePickerHandler) {
+      const picked = await mobilePickerHandler({
+        mode: "files",
+        title: "Select files to encrypt",
+      });
+      return picked ?? [];
+    }
     try {
       const res = await open({
         directory: false,
@@ -288,6 +416,14 @@ const tauriBackend: Backend = {
     }
   },
   pickExportDestination: async (defaultName) => {
+    if ((await tauriBackend.isMobile()) && mobilePickerHandler) {
+      const picked = await mobilePickerHandler({
+        mode: "save",
+        title: "Export decrypted copy",
+        defaultFileName: defaultName,
+      });
+      return picked?.[0] ?? null;
+    }
     try {
       const res = await save({ defaultPath: defaultName, title: "Export decrypted copy" });
       if (typeof res === "string") return res;
@@ -473,8 +609,45 @@ function createBrowserMockBackend(): Backend {
     defaultVaultsDir: async () => "/synthetic/app-vaults",
     listDiscoveredVaults: async () =>
       vaults.map((v) => ({ name: v.name, path: v.path, already_registered: true })),
+    listStorageRoots: async () => [
+      { label: "App Vaults", path: "/synthetic/app-vaults", readable: true, kind: "app-vaults" },
+      { label: "App Exports", path: "/synthetic/app-exports", readable: true, kind: "app-exports" },
+      { label: "Internal Storage", path: "/storage/emulated/0", readable: true, kind: "internal" },
+    ],
+    listHostDir: async (path) => ({
+      path,
+      parent: path === "/" ? null : path.split("/").slice(0, -1).join("/") || "/",
+      is_empty: false,
+      is_cvz_vault: path.includes("demo-vault"),
+      is_cryptomator_vault: false,
+      entries: [
+        {
+          name: "DemoVault",
+          path: `${path.replace(/\/$/, "")}/DemoVault`,
+          is_dir: true,
+          size: 0,
+          is_cvz_vault: true,
+          is_cryptomator_vault: false,
+        },
+        {
+          name: "sample.txt",
+          path: `${path.replace(/\/$/, "")}/sample.txt`,
+          is_dir: false,
+          size: 1024,
+          is_cvz_vault: false,
+          is_cryptomator_vault: false,
+        },
+      ],
+    }),
+    createHostDir: async (parent, name) => `${parent.replace(/\/$/, "")}/${name}`,
     defaultExportDir: async () => "/synthetic/app-exports",
-    pickFolder: async () => "/synthetic/new-vault",
+    pickFolder: async (title, options) => {
+      if (mobilePickerHandler) {
+        const picked = await mobilePickerHandler({ mode: "folder", title, ...options });
+        return picked?.[0] ?? null;
+      }
+      return "/synthetic/new-vault";
+    },
     pickFileToImport: async () => "/synthetic/sample.txt",
     pickFilesToImport: async () => ["/synthetic/sample.txt"],
     pickExportDestination: async (name) => `/synthetic/export/${name}`,

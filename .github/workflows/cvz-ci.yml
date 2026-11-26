@@ -187,17 +187,7 @@ jobs:
           set -o pipefail
           npx tauri android init --ci
           npx tauri icon src-tauri/icons/icon.png
-          python3 - <<'PY'
-          import os, re
-          gradle = "src-tauri/gen/android/app/build.gradle.kts"
-          if os.path.exists(gradle):
-              txt = open(gradle).read()
-              vcode = 20000 + int(os.environ.get("RUN_NUMBER", "1"))
-              txt = re.sub(r'versionCode\s*=\s*[^\n]+', f'versionCode = {vcode}', txt)
-              txt = re.sub(r'versionName\s*=\s*[^\n]+', 'versionName = "0.2.0"', txt)
-              open(gradle, "w").write(txt)
-              print(f"Patched Android versionCode={vcode}, versionName=0.2.0")
-          PY
+          python3 scripts/patch_android.py
           npx tauri android build --apk --debug --target aarch64
           cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk ../Fortress-CipherVaultX-v0.2.0-android-signed.apk
           ls -lh ../Fortress-CipherVaultX-v0.2.0-android-signed.apk

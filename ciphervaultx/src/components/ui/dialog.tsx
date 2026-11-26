@@ -20,10 +20,10 @@ export const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) 
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
-      onMouseDown={(e) => {
+      onClick={(e) => {
         if (e.target === e.currentTarget) onOpenChange(false);
       }}
     >
@@ -38,7 +38,7 @@ export const DialogContent: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
 }) => (
   <div
     className={cn(
-      "surface-glass w-full max-w-lg rounded-lg border border-border p-6 text-foreground shadow-xl",
+      "surface-glass max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-lg border border-border p-4 text-foreground shadow-xl sm:p-6",
       className
     )}
     {...props}

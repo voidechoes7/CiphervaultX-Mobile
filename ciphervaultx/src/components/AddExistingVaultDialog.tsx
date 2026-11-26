@@ -1,6 +1,12 @@
 import * as React from "react";
-import { Check, FolderOpen, FolderPlus, RefreshCw } from "lucide-react";
-import { backend, type DiscoveredVault } from "@/lib/api";
+import { Check, FolderOpen, FolderPlus, RefreshCw, ShieldAlert } from "lucide-react";
+import {
+  backend,
+  hasAndroidAllFilesAccess,
+  hasAndroidStorageBridge,
+  requestAndroidAllFilesAccess,
+  type DiscoveredVault,
+} from "@/lib/api";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -36,9 +42,13 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
   const [scanning, setScanning] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [allFilesGranted, setAllFilesGranted] = React.useState(false);
+
+  const hasBridge = hasAndroidStorageBridge();
 
   const loadLocalVaults = React.useCallback(async () => {
     setScanning(true);
+    setAllFilesGranted(hasAndroidAllFilesAccess());
     try {
       const [root, found] = await Promise.all([
         backend.defaultVaultsDir().catch(() => ""),
@@ -63,9 +73,22 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
     }
   }, [open, initialError, loadLocalVaults]);
 
+  React.useEffect(() => {
+    if (!open) return;
+    const handleResume = () => {
+      void loadLocalVaults();
+    };
+    window.addEventListener("android-storage-resumed", handleResume);
+    return () => {
+      window.removeEventListener("android-storage-resumed", handleResume);
+    };
+  }, [open, loadLocalVaults]);
+
   const handleBrowse = async () => {
     setError(null);
-    const picked = await backend.pickFolder("Select existing CVZ v1 vault folder");
+    const picked = await backend.pickFolder("Select existing CVZ v1 vault folder", {
+      highlightVaults: "cvz",
+    });
     if (picked) {
       setPath(picked);
     }
@@ -75,7 +98,7 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
     setError(null);
     const trimmed = targetPath.trim();
     if (!trimmed) {
-      setError("Enter the folder path of an existing CVZ v1 vault.");
+      setError("Enter or browse to the folder of an existing CVZ v1 vault.");
       return;
     }
     setBusy(true);
@@ -105,16 +128,37 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
           </DialogTitle>
           <DialogDescription>
             {isMobile
-              ? "Select a vault found in app storage or enter the full path to a folder containing cvz.vault.json."
+              ? "Browse your device filesystem, pick a detected vault, or enter the path to a folder containing cvz.vault.json."
               : "Choose an existing CVZ v1 vault folder containing cvz.vault.json."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          {hasBridge && !allFilesGranted && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+              <div className="flex min-w-0 flex-1 items-start gap-2">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                <span>
+                  Enable <strong>All files access</strong> to browse Android Internal Storage (
+                  <code>/storage/emulated/0</code>).
+                </span>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 border-amber-500/50 text-xs"
+                onClick={() => requestAndroidAllFilesAccess()}
+              >
+                Grant Access
+              </Button>
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Vaults in App Storage
+                Detected Vaults
               </Label>
               <Button
                 type="button"
@@ -132,8 +176,8 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
             {discovered.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-xs text-muted-foreground">
                 {scanning
-                  ? "Scanning app storage…"
-                  : "No unregistered vaults found in app storage yet."}
+                  ? "Scanning storage for CVZ v1 vaults…"
+                  : "No detected vaults yet. Tap Browse below to explore device storage."}
                 {vaultsRoot && (
                   <div className="mt-1 truncate font-mono text-[11px] opacity-80">{vaultsRoot}</div>
                 )}
@@ -174,7 +218,7 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
             )}
           </div>
 
-          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
+          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3" noValidate>
             <div className="space-y-1.5">
               <Label htmlFor="existing-vault-path">Vault Folder Path</Label>
               <div className="flex gap-2">
@@ -182,21 +226,19 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
                   id="existing-vault-path"
                   value={path}
                   onChange={(e) => setPath(e.target.value)}
-                  placeholder={vaultsRoot ? `${vaultsRoot}/MyVault` : "/path/to/vault"}
-                  className="font-mono text-xs"
+                  placeholder={vaultsRoot ? `${vaultsRoot}/MyVault` : "/storage/emulated/0/MyVault"}
+                  className="min-w-0 flex-1 font-mono text-xs"
                   disabled={busy}
                 />
-                {!isMobile && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void handleBrowse()}
-                    disabled={busy}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                    Browse
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleBrowse()}
+                  disabled={busy}
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Browse
+                </Button>
               </div>
             </div>
 
@@ -226,7 +268,7 @@ export const AddExistingVaultDialog: React.FC<AddExistingVaultDialogProps> = ({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy || !path.trim()}>
+              <Button type="submit" disabled={busy}>
                 {busy ? "Adding…" : "Add Vault"}
               </Button>
             </DialogFooter>

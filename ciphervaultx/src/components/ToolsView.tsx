@@ -332,7 +332,9 @@ export const ToolsView: React.FC = () => {
                   type="button"
                   variant="outline"
                   onClick={async () => {
-                    const p = await backend.pickFolder("Select Cryptomator vault folder");
+                    const p = await backend.pickFolder("Select Cryptomator vault folder", {
+                      highlightVaults: "cryptomator",
+                    });
                     if (p) setCmPath(p);
                   }}
                 >

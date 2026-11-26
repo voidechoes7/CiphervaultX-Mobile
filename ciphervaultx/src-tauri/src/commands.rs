@@ -68,9 +68,10 @@ pub async fn generate_access_gate_hash(passphrase: String) -> Result<String, Str
     .map_err(|_| "background task failed".to_string())?
 }
 
-/// Create and return an empty, writable vault directory inside the app's
+/// Return an unused or empty writable vault path inside the app's
 /// platform-managed storage root (essential on Android & iOS where native
-/// directory pickers are unavailable).
+/// directory pickers are unavailable). `Vault::create` creates the directory
+/// on disk when the user confirms creation.
 #[tauri::command]
 pub fn default_vault_path(name: Option<String>) -> Result<String, String> {
     let root = registry::default_vaults_root()?;
@@ -102,7 +103,6 @@ pub fn default_vault_path(name: Option<String>) -> Result<String, String> {
         candidate = root.join(format!("{base_name}-{suffix}"));
         suffix += 1;
     }
-    std::fs::create_dir_all(&candidate).map_err(|e| e.to_string())?;
     Ok(candidate.to_string_lossy().to_string())
 }
 
@@ -126,33 +126,256 @@ pub struct DiscoveredVault {
     pub already_registered: bool,
 }
 
-/// Scan the app's managed vaults directory for existing CVZ v1 vault folders
-/// (directories containing `cvz.vault.json`) so mobile users can re-add vaults
-/// without a desktop directory picker.
+/// Scan the app's managed vaults directory (and common shared storage directories
+/// when accessible) for existing CVZ v1 vault folders (`cvz.vault.json`).
 #[tauri::command]
 pub fn list_discovered_vaults() -> Result<Vec<DiscoveredVault>, String> {
     let root = registry::default_vaults_root()?;
     let registered = registry::load();
     let mut found = Vec::new();
+    let mut seen = std::collections::HashSet::new();
 
-    if let Ok(entries) = std::fs::read_dir(&root) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join(cvz_core::config::CONFIG_FILENAME).is_file() {
-                let path_str = path.to_string_lossy().to_string();
-                let already_registered = registered.iter().any(|v| v.path == path_str);
-                let name = registry::safe_folder_name(&path_str);
-                found.push(DiscoveredVault {
-                    name,
-                    path: path_str,
-                    already_registered,
-                });
+    let mut scan_roots = vec![root];
+    if cfg!(target_os = "android") {
+        for candidate in [
+            "/storage/emulated/0",
+            "/storage/emulated/0/Documents",
+            "/storage/emulated/0/Download",
+        ] {
+            let p = PathBuf::from(candidate);
+            if p.is_dir() {
+                scan_roots.push(p);
+            }
+        }
+    }
+
+    for scan_root in scan_roots {
+        if let Ok(entries) = std::fs::read_dir(&scan_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() && path.join(cvz_core::config::CONFIG_FILENAME).is_file() {
+                    let path_str = path.to_string_lossy().to_string();
+                    if seen.insert(path_str.clone()) {
+                        let already_registered = registered.iter().any(|v| v.path == path_str);
+                        let name = registry::safe_folder_name(&path_str);
+                        found.push(DiscoveredVault {
+                            name,
+                            path: path_str,
+                            already_registered,
+                        });
+                    }
+                }
             }
         }
     }
 
     found.sort_by_key(|a| a.name.to_lowercase());
     Ok(found)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageRoot {
+    pub label: String,
+    pub path: String,
+    pub readable: bool,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostDirEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub is_cvz_vault: bool,
+    pub is_cryptomator_vault: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostDirListing {
+    pub path: String,
+    pub parent: Option<String>,
+    pub is_empty: bool,
+    pub is_cvz_vault: bool,
+    pub is_cryptomator_vault: bool,
+    pub entries: Vec<HostDirEntry>,
+}
+
+/// Return known storage roots for the in-app filesystem browser (essential on
+/// Android & iOS where `tauri-plugin-dialog` does not support folder picking).
+#[tauri::command]
+pub fn list_storage_roots(state: State<'_, AppState>) -> Result<Vec<StorageRoot>, String> {
+    require_gate(&state)?;
+    let mut roots = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let mut push_root = |label: &str, path: PathBuf, kind: &str| {
+        let path_str = path.to_string_lossy().to_string();
+        if seen.insert(path_str.clone()) {
+            let readable = std::fs::read_dir(&path).is_ok();
+            roots.push(StorageRoot {
+                label: label.to_string(),
+                path: path_str,
+                readable,
+                kind: kind.to_string(),
+            });
+        }
+    };
+
+    if let Ok(vaults_root) = registry::default_vaults_root() {
+        push_root("App Vaults", vaults_root, "app-vaults");
+    }
+    if let Ok(exports_root) = registry::default_exports_root() {
+        push_root("App Exports", exports_root, "app-exports");
+    }
+
+    if cfg!(target_os = "android") {
+        let internal = PathBuf::from("/storage/emulated/0");
+        push_root("Internal Storage", internal.clone(), "internal");
+        for (label, rel, kind) in [
+            ("Documents", "Documents", "documents"),
+            ("Downloads", "Download", "downloads"),
+            ("DCIM", "DCIM", "dcim"),
+        ] {
+            let sub = internal.join(rel);
+            if sub.exists() {
+                push_root(label, sub, kind);
+            }
+        }
+        if let Ok(storage_entries) = std::fs::read_dir("/storage") {
+            for entry in storage_entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name == "emulated" || name == "self" {
+                    continue;
+                }
+                let p = entry.path();
+                if p.is_dir() {
+                    push_root(&format!("SD / {name}"), p, "sdcard");
+                }
+            }
+        }
+    } else if !cfg!(mobile) {
+        if let Some(home) = dirs::home_dir() {
+            push_root("Home", home, "home");
+        }
+        if let Some(docs) = dirs::document_dir() {
+            push_root("Documents", docs, "documents");
+        }
+        if let Some(dl) = dirs::download_dir() {
+            push_root("Downloads", dl, "downloads");
+        }
+    }
+
+    Ok(roots)
+}
+
+/// List folders and files in a host directory for the in-app device browser.
+#[tauri::command]
+pub fn list_host_dir(state: State<'_, AppState>, path: String) -> Result<HostDirListing, String> {
+    require_gate(&state)?;
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Directory path cannot be empty.".to_string());
+    }
+    let dir = PathBuf::from(trimmed);
+    if !dir.exists() {
+        return Err(format!("Directory does not exist: {}", dir.display()));
+    }
+    if !dir.is_dir() {
+        return Err(format!("Path is not a directory: {}", dir.display()));
+    }
+
+    let read_dir = std::fs::read_dir(&dir).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            format!(
+                "Permission denied for '{}'. Grant 'All files access' in Android settings to browse shared storage.",
+                dir.display()
+            )
+        } else {
+            e.to_string()
+        }
+    })?;
+
+    let mut entries = Vec::new();
+    let mut total_children = 0usize;
+    for entry in read_dir.flatten() {
+        total_children += 1;
+        let entry_path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let is_dir = meta.is_dir();
+        let size = if is_dir { 0 } else { meta.len() };
+        let is_cvz_vault = is_dir && entry_path.join(cvz_core::config::CONFIG_FILENAME).is_file();
+        let is_cryptomator_vault = is_dir && entry_path.join("vault.cryptomator").is_file();
+        entries.push(HostDirEntry {
+            name,
+            path: entry_path.to_string_lossy().to_string(),
+            is_dir,
+            size,
+            is_cvz_vault,
+            is_cryptomator_vault,
+        });
+    }
+
+    entries.sort_by_key(|e| (!e.is_dir, e.name.to_lowercase()));
+
+    let parent = dir
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty() && *p != dir.as_path())
+        .map(|p| p.to_string_lossy().to_string());
+    let is_cvz_vault = dir.join(cvz_core::config::CONFIG_FILENAME).is_file();
+    let is_cryptomator_vault = dir.join("vault.cryptomator").is_file();
+
+    Ok(HostDirListing {
+        path: dir.to_string_lossy().to_string(),
+        parent,
+        is_empty: total_children == 0,
+        is_cvz_vault,
+        is_cryptomator_vault,
+        entries,
+    })
+}
+
+/// Create a new subfolder inside `parent` from the in-app device browser.
+#[tauri::command]
+pub fn create_host_dir(
+    state: State<'_, AppState>,
+    parent: String,
+    name: String,
+) -> Result<String, String> {
+    require_gate(&state)?;
+    let clean_name = name.trim();
+    if clean_name.is_empty() {
+        return Err("Folder name cannot be empty.".to_string());
+    }
+    if clean_name == "."
+        || clean_name == ".."
+        || clean_name.contains('/')
+        || clean_name.contains('\\')
+    {
+        return Err("Invalid folder name.".to_string());
+    }
+    let parent_path = PathBuf::from(parent.trim());
+    if !parent_path.is_dir() {
+        return Err(format!(
+            "Parent folder does not exist: {}",
+            parent_path.display()
+        ));
+    }
+    let target = parent_path.join(clean_name);
+    std::fs::create_dir_all(&target).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            format!(
+                "Permission denied creating folder in '{}'. Grant 'All files access' or choose App Vaults.",
+                parent_path.display()
+            )
+        } else {
+            e.to_string()
+        }
+    })?;
+    Ok(target.to_string_lossy().to_string())
 }
 
 /// Return a writable export directory inside the app's managed storage root

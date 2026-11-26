@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, Copy, FolderOpen } from "lucide-react";
+import { Check, Copy, FolderOpen, Sparkles } from "lucide-react";
 import {
   backend,
   type CipherSuite,
@@ -35,10 +35,17 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
   onOpenChange,
   onCreated,
 }) => {
+  const initialIsMobile =
+    typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  const [isMobile, setIsMobile] = React.useState(initialIsMobile);
   const [name, setName] = React.useState("");
   const [path, setPath] = React.useState("");
   const [suite, setSuite] = React.useState<CipherSuite>("xchacha20-poly1305");
-  const [kdfChoice, setKdfChoice] = React.useState<KdfChoice>("desktop");
+  const [kdfChoice, setKdfChoice] = React.useState<KdfChoice>(
+    initialIsMobile ? "mobile" : "desktop"
+  );
+  const kdfTouchedRef = React.useRef(false);
   const [memoryMiB, setMemoryMiB] = React.useState(256);
   const [iterations, setIterations] = React.useState(3);
   const [parallelism, setParallelism] = React.useState(1);
@@ -50,14 +57,29 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
   const [createdVault, setCreatedVault] = React.useState<VaultInfo | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [acknowledged, setAcknowledged] = React.useState(false);
+  const errorRef = React.useRef<HTMLDivElement | null>(null);
 
   const strength = passwordStrength(password);
+  const passwordLen = [...password].length;
+
+  React.useEffect(() => {
+    void backend
+      .isMobile()
+      .then((mobile) => {
+        setIsMobile(mobile);
+        if (mobile && !kdfTouchedRef.current) {
+          setKdfChoice("mobile");
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   const reset = () => {
     setName("");
     setPath("");
     setSuite("xchacha20-poly1305");
-    setKdfChoice("desktop");
+    setKdfChoice(isMobile ? "mobile" : "desktop");
+    kdfTouchedRef.current = false;
     setMemoryMiB(256);
     setIterations(3);
     setParallelism(1);
@@ -79,53 +101,67 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
     onOpenChange(nextOpen);
   };
 
-  const [isMobile, setIsMobile] = React.useState(
-    () =>
-      typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-  );
-
-  React.useEffect(() => {
-    void backend
-      .isMobile()
-      .then((mobile) => setIsMobile(mobile))
-      .catch(() => undefined);
-  }, []);
-
   React.useEffect(() => {
     if (open && isMobile && !path) {
       void backend
         .defaultVaultPath(name.trim() || "Vault")
         .then((p) => setPath((prev) => prev || p))
-        .catch(() => undefined);
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : String(err));
+        });
     }
   }, [open, isMobile, path, name]);
 
+  React.useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [error]);
+
   const handlePickFolder = async () => {
     setError(null);
-    const picked = await backend.pickFolder("Select empty folder for new vault");
+    const picked = await backend.pickFolder("Select folder for new vault", {
+      requireEmptyFolder: true,
+      suggestedSubfolder: name.trim() || "Vault",
+    });
     if (picked) {
       setPath(picked);
-      return;
     }
-    if (isMobile) {
-      try {
-        const autoPath = await backend.defaultVaultPath(name.trim() || "Vault");
-        setPath(autoPath);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+  };
+
+  const handleUseAppFolder = async () => {
+    setError(null);
+    try {
+      const autoPath = await backend.defaultVaultPath(name.trim() || "Vault");
+      setPath(autoPath);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setError(null);
-    if (!path.trim()) {
-      setError("Select a destination folder.");
+
+    let resolvedPath = path.trim();
+    if (!resolvedPath && isMobile) {
+      try {
+        resolvedPath = await backend.defaultVaultPath(name.trim() || "Vault");
+        setPath(resolvedPath);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
+    if (!resolvedPath) {
+      setError("Select a destination folder (tap Browse or App Folder).");
       return;
     }
     if (!strength.meetsPolicy) {
-      setError(`Password must be at least ${MIN_PASSWORD_CHARS} characters.`);
+      setError(
+        `Master password must be at least ${MIN_PASSWORD_CHARS} characters (currently ${passwordLen}).`
+      );
       return;
     }
     if (password !== confirm) {
@@ -133,11 +169,13 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
       return;
     }
 
-    let kdfProfile: KdfProfile = "desktop";
+    let kdfProfile: KdfProfile = isMobile ? "mobile" : "desktop";
     let customKdf: CustomArgon2Params | undefined;
 
     if (kdfChoice === "mobile") {
       kdfProfile = "mobile";
+    } else if (kdfChoice === "desktop") {
+      kdfProfile = "desktop";
     } else if (kdfChoice === "high") {
       kdfProfile = "desktop";
       customKdf = { m_cost: 512 * 1024, t_cost: 4, p_cost: 2 };
@@ -165,7 +203,7 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
     try {
       const res = await backend.createVault({
         name: name.trim() || "Vault",
-        path: path.trim(),
+        path: resolvedPath,
         suite,
         kdfProfile,
         password,
@@ -189,7 +227,7 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard unavailable
+      // Clipboard unavailable on restricted WebView
     }
   };
 
@@ -228,8 +266,8 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                 {recoveryKey}
               </div>
 
-              <div className="flex items-center justify-between gap-2">
-                <Button variant="outline" size="sm" onClick={handleCopyRecovery}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleCopyRecovery}>
                   {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   {copied ? "Copied" : "Copy Recovery Key"}
                 </Button>
@@ -245,13 +283,13 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
             </div>
 
             <DialogFooter>
-              <Button disabled={!acknowledged} onClick={handleFinish}>
+              <Button type="button" disabled={!acknowledged} onClick={handleFinish}>
                 Open Vault
               </Button>
             </DialogFooter>
           </>
         ) : (
-          <form onSubmit={handleCreate}>
+          <form onSubmit={(e) => void handleCreate(e)} noValidate>
             <DialogHeader>
               <DialogTitle>Create Encrypted Vault</DialogTitle>
               <DialogDescription>
@@ -267,37 +305,60 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                   placeholder="Personal Archive"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  disabled={busy}
                 />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="vault-folder">Empty Folder</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Input
                     id="vault-folder"
                     placeholder="/path/to/empty-folder"
                     value={path}
                     onChange={(e) => setPath(e.target.value)}
+                    className="min-w-0 flex-1 font-mono text-xs"
+                    disabled={busy}
                   />
-                  <Button type="button" variant="outline" onClick={handlePickFolder}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handlePickFolder()}
+                    disabled={busy}
+                  >
                     <FolderOpen className="h-4 w-4" />
-                    {isMobile ? "App Folder" : "Browse"}
+                    Browse
                   </Button>
+                  {isMobile && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void handleUseAppFolder()}
+                      disabled={busy}
+                      title="Use automatic folder inside private app storage"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      App Folder
+                    </Button>
+                  )}
                 </div>
                 {isMobile && (
                   <p className="text-[11px] text-muted-foreground">
-                    Android &amp; iOS store vaults inside private app storage automatically.
+                    Tap <strong>Browse</strong> to choose any folder in Android/iOS storage or use
+                    private App Folder automatically.
                   </p>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="vault-suite">Cipher Suite</Label>
                   <Select
                     id="vault-suite"
                     value={suite}
                     onChange={(e) => setSuite(e.target.value as CipherSuite)}
+                    disabled={busy}
                   >
                     <option value="xchacha20-poly1305">
                       XChaCha20-Poly1305 (256-bit · Quantum-Safe at Rest)
@@ -313,10 +374,14 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                   <Select
                     id="vault-kdf"
                     value={kdfChoice}
-                    onChange={(e) => setKdfChoice(e.target.value as KdfChoice)}
+                    onChange={(e) => {
+                      kdfTouchedRef.current = true;
+                      setKdfChoice(e.target.value as KdfChoice);
+                    }}
+                    disabled={busy}
                   >
-                    <option value="desktop">Desktop (256 MiB, t=3, p=1)</option>
                     <option value="mobile">Mobile (64 MiB, t=3, p=1)</option>
+                    <option value="desktop">Desktop (256 MiB, t=3, p=1)</option>
                     <option value="high">High Desktop (512 MiB, t=4, p=2)</option>
                     <option value="custom">Custom Argon2id (Advanced)</option>
                   </Select>
@@ -335,6 +400,7 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                       step={64}
                       value={memoryMiB}
                       onChange={(e) => setMemoryMiB(Number(e.target.value))}
+                      disabled={busy}
                     />
                   </div>
                   <div className="space-y-1">
@@ -346,6 +412,7 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                       max={500}
                       value={iterations}
                       onChange={(e) => setIterations(Number(e.target.value))}
+                      disabled={busy}
                     />
                   </div>
                   <div className="space-y-1">
@@ -357,6 +424,7 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                       max={16}
                       value={parallelism}
                       onChange={(e) => setParallelism(Number(e.target.value))}
+                      disabled={busy}
                     />
                   </div>
                 </div>
@@ -379,9 +447,14 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  disabled={busy}
                 />
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{strength.label}</span>
+                  <span>
+                    {strength.label}
+                    {!strength.meetsPolicy &&
+                      ` (${passwordLen}/${MIN_PASSWORD_CHARS} chars)`}
+                  </span>
                   <span>~{strength.bits} bits</span>
                 </div>
                 <Progress value={(strength.score / 4) * 100} />
@@ -395,17 +468,33 @@ export const CreateVaultWizard: React.FC<CreateVaultWizardProps> = ({
                   autoComplete="new-password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
+                  disabled={busy}
                 />
+                {confirm.length > 0 && password !== confirm && (
+                  <p className="text-xs text-destructive">Passwords do not match.</p>
+                )}
               </div>
 
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              {error && (
+                <div
+                  ref={errorRef}
+                  className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                >
+                  {error}
+                </div>
+              )}
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleClose(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleClose(false)}
+                disabled={busy}
+              >
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy || !strength.meetsPolicy}>
+              <Button type="submit" disabled={busy}>
                 {busy ? "Deriving keys…" : "Create Vault"}
               </Button>
             </DialogFooter>

@@ -1,7 +1,14 @@
 import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { FileArchive, KeyRound, Lock, Menu, Moon, Settings, Shield, Sun, X } from "lucide-react";
-import { backend, isTauriRuntime, type AppGateStatus, type VaultInfo } from "@/lib/api";
+import {
+  backend,
+  isTauriRuntime,
+  registerMobilePickerHandler,
+  type AppGateStatus,
+  type DevicePickerRequest,
+  type VaultInfo,
+} from "@/lib/api";
 import {
   applyTheme,
   isValidTheme,
@@ -14,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { AddExistingVaultDialog } from "./components/AddExistingVaultDialog";
 import { AppAccessGate } from "./components/AppAccessGate";
 import { CreateVaultWizard } from "./components/CreateVaultWizard";
+import { DeviceFileBrowserDialog } from "./components/DeviceFileBrowserDialog";
 import { FileExplorer } from "./components/FileExplorer";
 import { PasswordGeneratorView } from "./components/PasswordGeneratorView";
 import { SettingsView } from "./components/SettingsView";
@@ -42,6 +50,31 @@ export const App: React.FC = () => {
   const [unlockTarget, setUnlockTarget] = React.useState<VaultInfo | null>(null);
   const [transfer, setTransfer] = React.useState<TransferEvent | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const [pickerRequest, setPickerRequest] = React.useState<DevicePickerRequest | null>(null);
+  const pickerResolverRef = React.useRef<((paths: string[] | null) => void) | null>(null);
+
+  React.useEffect(() => {
+    registerMobilePickerHandler(
+      (req) =>
+        new Promise<string[] | null>((resolve) => {
+          pickerResolverRef.current?.(null);
+          pickerResolverRef.current = resolve;
+          setPickerRequest(req);
+        })
+    );
+    return () => {
+      pickerResolverRef.current?.(null);
+      pickerResolverRef.current = null;
+      registerMobilePickerHandler(null);
+    };
+  }, []);
+
+  const handleResolvePicker = React.useCallback((paths: string[] | null) => {
+    const resolver = pickerResolverRef.current;
+    pickerResolverRef.current = null;
+    setPickerRequest(null);
+    resolver?.(paths);
+  }, []);
 
   const refreshVaults = React.useCallback(async () => {
     const list = await backend.listVaults();
@@ -436,6 +469,8 @@ export const App: React.FC = () => {
           selectView({ kind: "explorer", vaultId: unlocked.id });
         }}
       />
+
+      <DeviceFileBrowserDialog request={pickerRequest} onResolve={handleResolvePicker} />
     </div>
   );
 };
