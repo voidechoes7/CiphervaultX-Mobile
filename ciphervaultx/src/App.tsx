@@ -263,7 +263,7 @@ export const App: React.FC = () => {
           />
           <div>
             <div className="text-sm font-semibold leading-tight tracking-tight">CipherVaultX</div>
-            <div className="text-[10px] text-muted-foreground">Fortress · v0.2.0</div>
+            <div className="text-[10px] text-muted-foreground">Fortress · v0.2.1</div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">

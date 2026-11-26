@@ -46,7 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
           <div>
             <div className="text-sm font-semibold tracking-tight">Fortress</div>
-            <div className="text-[11px] text-muted-foreground">CipherVaultX · v0.2.0</div>
+            <div className="text-[11px] text-muted-foreground">CipherVaultX · v0.2.1</div>
           </div>
         </div>
         <Button

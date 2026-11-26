@@ -9,9 +9,19 @@
 """
 
 import glob
+import json
 import os
 import re
 import sys
+
+
+def read_app_version() -> str:
+    conf = "src-tauri/tauri.conf.json"
+    if os.path.exists(conf):
+        data = json.load(open(conf, encoding="utf-8"))
+        if isinstance(data.get("version"), str) and data["version"].strip():
+            return data["version"].strip()
+    return "0.2.1"
 
 
 def patch_gradle() -> None:
@@ -19,12 +29,13 @@ def patch_gradle() -> None:
     if not os.path.exists(gradle):
         print(f"WARNING: {gradle} not found")
         return
+    version = read_app_version()
     txt = open(gradle, encoding="utf-8").read()
     vcode = 20000 + int(os.environ.get("RUN_NUMBER", "1"))
     txt = re.sub(r"versionCode\s*=\s*[^\n]+", f"versionCode = {vcode}", txt)
-    txt = re.sub(r"versionName\s*=\s*[^\n]+", 'versionName = "0.2.0"', txt)
+    txt = re.sub(r"versionName\s*=\s*[^\n]+", f'versionName = "{version}"', txt)
     open(gradle, "w", encoding="utf-8").write(txt)
-    print(f"Patched Android versionCode={vcode}, versionName=0.2.0")
+    print(f"Patched Android versionCode={vcode}, versionName={version}")
 
 
 def patch_manifest() -> None:

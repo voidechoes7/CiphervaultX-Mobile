@@ -42,7 +42,7 @@ export const VaultDashboard: React.FC<VaultDashboardProps> = ({
           <div className="space-y-1">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
               <Sparkles className="h-3 w-3" />
-              Fortress · CVZ v1 · v0.2.0
+              Fortress · CVZ v1 · v0.2.1
             </div>
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Encrypted Vaults</h1>
             <p className="text-sm text-muted-foreground">
