@@ -13,6 +13,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(AppState::new())
         .setup(|app| {
             let handle = app.handle().clone();
@@ -62,6 +63,7 @@ pub fn run() {
             commands::import_paths,
             commands::export_file,
             commands::export_dir,
+            commands::export_dir_as_zip,
             commands::preview_file,
             commands::rename_entry,
             commands::move_entry,
@@ -73,6 +75,14 @@ pub fn run() {
             commands::touch_activity,
             commands::encrypt_standalone_file,
             commands::decrypt_standalone_file,
+            commands::compress_to_zip,
+            commands::extract_archive,
+            commands::list_backup_jobs,
+            commands::save_backup_job,
+            commands::delete_backup_job,
+            commands::run_backup_job,
+            commands::run_all_mirror_backups,
+            commands::run_due_unlock_backups,
             commands::open_cryptomator_vault,
             commands::close_cryptomator_vault,
             commands::list_cryptomator_dir,

@@ -1,7 +1,14 @@
 import * as React from "react";
 import { Check, CheckCircle2, Copy, KeyRound, Lock, ShieldAlert, ShieldCheck } from "lucide-react";
 import { backend, type AppGateStatus, type IntegrityReport, type VaultInfo } from "@/lib/api";
-import { applyTheme, THEMES, type ThemeId } from "@/lib/themes";
+import {
+  applyTheme,
+  applyUiStyle,
+  THEMES,
+  UI_STYLES,
+  type ThemeId,
+  type UiStyleId,
+} from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -11,20 +18,24 @@ import { Separator } from "./ui/separator";
 
 interface SettingsViewProps {
   theme: ThemeId;
+  uiStyle: UiStyleId;
   autoLockMinutes: number;
   vaults: VaultInfo[];
   gateStatus: AppGateStatus;
   onThemeChange: (theme: ThemeId) => void;
+  onUiStyleChange: (style: UiStyleId) => void;
   onAutoLockChange: (minutes: number) => void;
   onLockAppGate: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   theme,
+  uiStyle,
   autoLockMinutes,
   vaults,
   gateStatus,
   onThemeChange,
+  onUiStyleChange,
   onAutoLockChange,
   onLockAppGate,
 }) => {
@@ -51,6 +62,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleSelectTheme = (id: ThemeId) => {
     applyTheme(id);
     onThemeChange(id);
+  };
+
+  const handleSelectUiStyle = (id: UiStyleId) => {
+    applyUiStyle(id);
+    onUiStyleChange(id);
   };
 
   const handleVerify = async () => {
@@ -195,6 +211,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </code>
             </div>
           )}
+        </div>
+      </section>
+
+      <Separator />
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-base font-medium">Interface Style (Light &amp; Dark)</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Switch the visual language independently from your color theme — works seamlessly in
+            both Light and Dark modes.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {UI_STYLES.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => handleSelectUiStyle(s.id)}
+              className={cn(
+                "rounded-xl border p-3.5 text-left transition-all",
+                uiStyle === s.id
+                  ? "border-primary bg-accent shadow-sm ring-1 ring-primary/40"
+                  : "border-border bg-card hover:border-primary/40 hover:bg-accent/40"
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">{s.label}</span>
+                <span className="inline-block rounded bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {s.badge}
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">{s.description}</p>
+            </button>
+          ))}
         </div>
       </section>
 

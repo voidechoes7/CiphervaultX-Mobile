@@ -2,12 +2,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use cvz_core::backup::{BackupJob, BackupManifest};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 const APP_DIR_NAME: &str = "ciphervaultx";
 const VAULTS_FILE: &str = "vaults.json";
 const SETTINGS_FILE: &str = "settings.json";
+const BACKUPS_FILE: &str = "backups.json";
+const MANIFESTS_DIR: &str = "backup-manifests";
 
 static APP_BASE_DIR: OnceLock<PathBuf> = OnceLock::new();
 
@@ -24,9 +27,15 @@ pub struct KnownVault {
     pub path: String,
 }
 
+fn default_ui_style() -> String {
+    "modern-vault".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub theme: String,
+    #[serde(default = "default_ui_style")]
+    pub ui_style: String,
     pub auto_lock_minutes: u32,
 }
 
@@ -34,6 +43,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: "neon-cyber".to_string(),
+            ui_style: default_ui_style(),
             auto_lock_minutes: 10,
         }
     }
@@ -140,4 +150,49 @@ pub fn load_settings() -> AppSettings {
 pub fn save_settings(settings: &AppSettings) -> Result<(), String> {
     let dir = cfg_dir()?;
     write_json(&dir.join(SETTINGS_FILE), settings)
+}
+
+pub fn load_backup_jobs() -> Vec<BackupJob> {
+    let Ok(dir) = cfg_dir() else {
+        return Vec::new();
+    };
+    read_json(&dir.join(BACKUPS_FILE)).unwrap_or_default()
+}
+
+pub fn save_backup_jobs(jobs: &[BackupJob]) -> Result<(), String> {
+    let dir = cfg_dir()?;
+    write_json(&dir.join(BACKUPS_FILE), jobs)
+}
+
+fn manifest_file_path(job_id: &str) -> Result<PathBuf, String> {
+    let safe_id: String = job_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if safe_id.is_empty() {
+        return Err("invalid backup job id".to_string());
+    }
+    let dir = cfg_dir()?.join(MANIFESTS_DIR);
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    Ok(dir.join(format!("{safe_id}.json")))
+}
+
+pub fn load_backup_manifest(job_id: &str) -> BackupManifest {
+    let Ok(path) = manifest_file_path(job_id) else {
+        return BackupManifest::default();
+    };
+    read_json(&path).unwrap_or_default()
+}
+
+pub fn save_backup_manifest(job_id: &str, manifest: &BackupManifest) -> Result<(), String> {
+    let path = manifest_file_path(job_id)?;
+    write_json(&path, manifest)
+}
+
+pub fn remove_backup_manifest(job_id: &str) {
+    if let Ok(path) = manifest_file_path(job_id) {
+        let _ = fs::remove_file(path);
+    }
 }

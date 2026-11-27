@@ -1,11 +1,16 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   applyTheme,
+  applyUiStyle,
+  isValidUiStyle,
   loadTheme,
+  loadUiStyle,
   nextQuickTheme,
   resolveMode,
   THEMES,
   THEME_STORAGE_KEY,
+  UI_STYLES,
+  UI_STYLE_STORAGE_KEY,
 } from "../themes";
 
 describe("themes", () => {
@@ -13,6 +18,7 @@ describe("themes", () => {
     localStorage.clear();
     document.documentElement.removeAttribute("data-theme");
     document.documentElement.removeAttribute("data-mode");
+    document.documentElement.removeAttribute("data-ui-style");
   });
 
   it("defines all ten light, dark, and adaptive themes", () => {
@@ -55,5 +61,22 @@ describe("themes", () => {
     expect(document.documentElement.getAttribute("data-mode")).toBe("light");
     expect(loadTheme()).toBe("system");
     expect(nextQuickTheme("arctic-light")).toBe("neon-cyber");
+  });
+
+  it("defines and persists all four interface styles for light and dark modes", () => {
+    expect(UI_STYLES.map((s) => s.id)).toEqual([
+      "liquid-glass",
+      "modern-vault",
+      "swiss-minimal",
+      "cyber-neon",
+    ]);
+    expect(isValidUiStyle("liquid-glass")).toBe(true);
+    expect(isValidUiStyle("unknown-style")).toBe(false);
+    expect(loadUiStyle()).toBe("modern-vault");
+
+    applyUiStyle("swiss-minimal");
+    expect(document.documentElement.getAttribute("data-ui-style")).toBe("swiss-minimal");
+    expect(localStorage.getItem(UI_STYLE_STORAGE_KEY)).toBe("swiss-minimal");
+    expect(loadUiStyle()).toBe("swiss-minimal");
   });
 });

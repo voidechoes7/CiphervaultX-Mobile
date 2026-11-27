@@ -1,5 +1,15 @@
 import * as React from "react";
-import { FileArchive, KeyRound, Lock, Moon, Plus, Settings, Sun, Unlock } from "lucide-react";
+import {
+  CloudUpload,
+  FileArchive,
+  KeyRound,
+  Lock,
+  Moon,
+  Plus,
+  Settings,
+  Sun,
+  Unlock,
+} from "lucide-react";
 import type { VaultInfo } from "@/lib/api";
 import { resolveMode, type ThemeId } from "@/lib/themes";
 import { cn } from "@/lib/utils";
@@ -9,6 +19,7 @@ import { Separator } from "./ui/separator";
 export type ActiveView =
   | { kind: "dashboard" }
   | { kind: "explorer"; vaultId: string }
+  | { kind: "backups" }
   | { kind: "tools" }
   | { kind: "generator" }
   | { kind: "settings" };
@@ -46,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
           <div>
             <div className="text-sm font-semibold tracking-tight">Fortress</div>
-            <div className="text-[11px] text-muted-foreground">CipherVaultX · v0.2.1</div>
+            <div className="text-[11px] text-muted-foreground">CipherVaultX · v0.3.0</div>
           </div>
         </div>
         <Button
@@ -126,7 +137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <Separator />
 
-      <div className="space-y-2 p-3">
+      <div className="space-y-1.5 p-3">
         {anyUnlocked && (
           <Button variant="outline" size="sm" className="w-full" onClick={onLockAll}>
             <Lock className="h-3.5 w-3.5" />
@@ -134,13 +145,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </Button>
         )}
         <Button
+          variant={view.kind === "backups" ? "secondary" : "ghost"}
+          size="sm"
+          className="w-full justify-start"
+          onClick={() => onSelectView({ kind: "backups" })}
+        >
+          <CloudUpload className="h-4 w-4" />
+          Auto Backups
+        </Button>
+        <Button
           variant={view.kind === "tools" ? "secondary" : "ghost"}
           size="sm"
           className="w-full justify-start"
           onClick={() => onSelectView({ kind: "tools" })}
         >
           <FileArchive className="h-4 w-4" />
-          File Locker &amp; Cryptomator
+          File Locker &amp; ZIP/7z
         </Button>
         <Button
           variant={view.kind === "generator" ? "secondary" : "ghost"}

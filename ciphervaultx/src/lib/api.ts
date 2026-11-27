@@ -52,7 +52,64 @@ export interface PreviewPayload {
 
 export interface AppSettings {
   theme: string;
+  ui_style: string;
   auto_lock_minutes: number;
+}
+
+export interface StandaloneOpResult {
+  path: string;
+  bytes: number;
+}
+
+export interface ArchiveOpResult {
+  path: string;
+  bytes: number;
+  entries: number;
+}
+
+export type BackupMode = "vault_mirror" | "encrypted_snapshot";
+export type BackupSchedule = "manual" | "hours12" | "hours24" | "days7";
+
+export interface BackupJob {
+  id: string;
+  name: string;
+  mode: BackupMode;
+  source_dir: string;
+  target_vault_id: string | null;
+  target_vault_dir: string | null;
+  target_output_dir: string | null;
+  suite: CipherSuite | null;
+  kdf_params: CustomArgon2Params | null;
+  schedule: BackupSchedule;
+  auto_run_on_unlock: boolean;
+  enabled: boolean;
+  last_run_unix: number | null;
+  last_status: string | null;
+}
+
+export interface BackupJobInput {
+  id?: string | null;
+  name: string;
+  mode: BackupMode;
+  source_dir: string;
+  target_vault_id?: string | null;
+  target_vault_dir?: string | null;
+  target_output_dir?: string | null;
+  suite?: CipherSuite | null;
+  kdf_params?: CustomArgon2Params | null;
+  schedule: BackupSchedule;
+  auto_run_on_unlock: boolean;
+  enabled: boolean;
+}
+
+export interface BackupRunReport {
+  job_id: string;
+  mode: BackupMode;
+  files_synced: number;
+  files_skipped: number;
+  bytes_processed: number;
+  output_path: string | null;
+  completed_unix: number;
 }
 
 export interface MountInfo {
@@ -211,6 +268,11 @@ export interface Backend {
   importPaths(vaultId: string, paths: string[], dstDir: string): Promise<number>;
   exportFile(vaultId: string, srcVaultPath: string, dstPath: string): Promise<number>;
   exportDir(vaultId: string, srcVaultDir: string, dstParentDir: string): Promise<number>;
+  exportDirAsZip(
+    vaultId: string,
+    srcVaultDir: string,
+    dstZipPath?: string | null
+  ): Promise<ArchiveOpResult>;
   previewFile(vaultId: string, path: string): Promise<PreviewPayload>;
   renameEntry(vaultId: string, path: string, newName: string): Promise<void>;
   moveEntry(vaultId: string, srcPath: string, dstDir: string): Promise<void>;
@@ -222,16 +284,25 @@ export interface Backend {
   touchActivity(): Promise<void>;
   encryptStandaloneFile(args: {
     srcPath: string;
-    dstPath: string;
+    dstPath?: string | null;
     password: string;
     suite: CipherSuite;
     kdfProfile: KdfProfile;
-  }): Promise<number>;
+    customKdf?: CustomArgon2Params | null;
+  }): Promise<StandaloneOpResult>;
   decryptStandaloneFile(args: {
     srcPath: string;
-    dstPath: string;
+    dstPath?: string | null;
     password: string;
-  }): Promise<number>;
+  }): Promise<StandaloneOpResult>;
+  compressToZip(srcPaths: string[], dstZipPath?: string | null): Promise<ArchiveOpResult>;
+  extractArchive(srcArchivePath: string, dstDir?: string | null): Promise<ArchiveOpResult>;
+  listBackupJobs(): Promise<BackupJob[]>;
+  saveBackupJob(job: BackupJobInput): Promise<BackupJob>;
+  deleteBackupJob(jobId: string): Promise<boolean>;
+  runBackupJob(jobId: string, password?: string | null): Promise<BackupRunReport>;
+  runAllMirrorBackups(vaultId?: string | null): Promise<BackupRunReport[]>;
+  runDueUnlockBackups(vaultId: string): Promise<BackupRunReport[]>;
   openCryptomatorVault(path: string, password: string): Promise<CryptomatorVaultInfo>;
   closeCryptomatorVault(): Promise<boolean>;
   listCryptomatorDir(path: string): Promise<VaultEntry[]>;
@@ -308,6 +379,12 @@ const tauriBackend: Backend = {
     invoke<number>("export_file", { vaultId, srcVaultPath, dstPath }),
   exportDir: (vaultId, srcVaultDir, dstParentDir) =>
     invoke<number>("export_dir", { vaultId, srcVaultDir, dstParentDir }),
+  exportDirAsZip: (vaultId, srcVaultDir, dstZipPath) =>
+    invoke<ArchiveOpResult>("export_dir_as_zip", {
+      vaultId,
+      srcVaultDir,
+      dstZipPath: dstZipPath ?? null,
+    }),
   previewFile: (vaultId, path) => invoke<PreviewPayload>("preview_file", { vaultId, path }),
   renameEntry: (vaultId, path, newName) =>
     invoke<void>("rename_entry", { vaultId, path, newName }),
@@ -319,16 +396,39 @@ const tauriBackend: Backend = {
   getSettings: () => invoke<AppSettings>("get_settings"),
   updateSettings: (settings) => invoke<void>("update_settings", { settings }),
   touchActivity: () => invoke<void>("touch_activity"),
-  encryptStandaloneFile: ({ srcPath, dstPath, password, suite, kdfProfile }) =>
-    invoke<number>("encrypt_standalone_file", {
+  encryptStandaloneFile: ({ srcPath, dstPath, password, suite, kdfProfile, customKdf }) =>
+    invoke<StandaloneOpResult>("encrypt_standalone_file", {
       srcPath,
-      dstPath,
+      dstPath: dstPath ?? null,
       password,
       suite,
       kdfProfile,
+      customKdf: customKdf ?? null,
     }),
   decryptStandaloneFile: ({ srcPath, dstPath, password }) =>
-    invoke<number>("decrypt_standalone_file", { srcPath, dstPath, password }),
+    invoke<StandaloneOpResult>("decrypt_standalone_file", {
+      srcPath,
+      dstPath: dstPath ?? null,
+      password,
+    }),
+  compressToZip: (srcPaths, dstZipPath) =>
+    invoke<ArchiveOpResult>("compress_to_zip", {
+      srcPaths,
+      dstZipPath: dstZipPath ?? null,
+    }),
+  extractArchive: (srcArchivePath, dstDir) =>
+    invoke<ArchiveOpResult>("extract_archive", {
+      srcArchivePath,
+      dstDir: dstDir ?? null,
+    }),
+  listBackupJobs: () => invoke<BackupJob[]>("list_backup_jobs"),
+  saveBackupJob: (job) => invoke<BackupJob>("save_backup_job", { job }),
+  deleteBackupJob: (jobId) => invoke<boolean>("delete_backup_job", { jobId }),
+  runBackupJob: (jobId, password) =>
+    invoke<BackupRunReport>("run_backup_job", { jobId, password: password ?? null }),
+  runAllMirrorBackups: (vaultId) =>
+    invoke<BackupRunReport[]>("run_all_mirror_backups", { vaultId: vaultId ?? null }),
+  runDueUnlockBackups: (vaultId) => invoke<BackupRunReport[]>("run_due_unlock_backups", { vaultId }),
   openCryptomatorVault: (path, password) =>
     invoke<CryptomatorVaultInfo>("open_cryptomator_vault", { path, password }),
   closeCryptomatorVault: () => invoke<boolean>("close_cryptomator_vault"),
@@ -377,6 +477,22 @@ const tauriBackend: Backend = {
     }
   },
   pickFileToImport: async () => {
+    const isIos =
+      typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    // On iOS, native UIDocumentPickerViewController (asCopy: true) lets users pick
+    // files directly from iCloud Drive / Files app without 0-byte File Provider failures.
+    if (isIos) {
+      try {
+        const res = await open({
+          directory: false,
+          multiple: false,
+          title: "Select file",
+        });
+        if (typeof res === "string") return res;
+      } catch {
+        // Fall through to in-app browser
+      }
+    }
     if ((await tauriBackend.isMobile()) && mobilePickerHandler) {
       const picked = await mobilePickerHandler({
         mode: "file",
@@ -396,6 +512,21 @@ const tauriBackend: Backend = {
     }
   },
   pickFilesToImport: async () => {
+    const isIos =
+      typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isIos) {
+      try {
+        const res = await open({
+          directory: false,
+          multiple: true,
+          title: "Select files",
+        });
+        if (Array.isArray(res) && res.length > 0) return res;
+        if (typeof res === "string") return [res];
+      } catch {
+        // Fall through to in-app browser
+      }
+    }
     if ((await tauriBackend.isMobile()) && mobilePickerHandler) {
       const picked = await mobilePickerHandler({
         mode: "files",
@@ -419,7 +550,7 @@ const tauriBackend: Backend = {
     if ((await tauriBackend.isMobile()) && mobilePickerHandler) {
       const picked = await mobilePickerHandler({
         mode: "save",
-        title: "Export decrypted copy",
+        title: "Export destination",
         defaultFileName: defaultName,
       });
       return picked?.[0] ?? null;
@@ -441,7 +572,11 @@ const tauriBackend: Backend = {
 };
 
 function createBrowserMockBackend(): Backend {
-  let settings: AppSettings = { theme: "obsidian-dark", auto_lock_minutes: 10 };
+  let settings: AppSettings = {
+    theme: "obsidian-dark",
+    ui_style: "modern-vault",
+    auto_lock_minutes: 10,
+  };
   const vaults: VaultInfo[] = [
     {
       id: "mock-1",
@@ -574,6 +709,11 @@ function createBrowserMockBackend(): Backend {
     importPaths: async () => 1024,
     exportFile: async () => 1024,
     exportDir: async () => 4096,
+    exportDirAsZip: async (_vaultId, _srcVaultDir, dstZipPath) => ({
+      path: dstZipPath || "/synthetic/app-exports/folder.zip",
+      bytes: 4096,
+      entries: 3,
+    }),
     previewFile: async () => ({
       mime: "text/plain",
       base64: btoa("Synthetic preview content (browser mock mode)."),
@@ -592,8 +732,53 @@ function createBrowserMockBackend(): Backend {
       settings = { ...next };
     },
     touchActivity: async () => undefined,
-    encryptStandaloneFile: async () => 2048,
-    decryptStandaloneFile: async () => 2048,
+    encryptStandaloneFile: async ({ srcPath, dstPath }) => ({
+      path: dstPath || `${srcPath}.cvxenc`,
+      bytes: 2048,
+    }),
+    decryptStandaloneFile: async ({ srcPath, dstPath }) => ({
+      path: dstPath || srcPath.replace(/\.cvxenc$/, ""),
+      bytes: 2048,
+    }),
+    compressToZip: async (_srcPaths, dstZipPath) => ({
+      path: dstZipPath || "/synthetic/app-exports/archive.zip",
+      bytes: 4096,
+      entries: 2,
+    }),
+    extractArchive: async (_srcArchivePath, dstDir) => ({
+      path: dstDir || "/synthetic/app-exports/extracted",
+      bytes: 4096,
+      entries: 2,
+    }),
+    listBackupJobs: async () => [],
+    saveBackupJob: async (job) => ({
+      id: job.id || "mock-job-1",
+      name: job.name,
+      mode: job.mode,
+      source_dir: job.source_dir,
+      target_vault_id: job.target_vault_id ?? null,
+      target_vault_dir: job.target_vault_dir ?? null,
+      target_output_dir: job.target_output_dir ?? null,
+      suite: job.suite ?? null,
+      kdf_params: job.kdf_params ?? null,
+      schedule: job.schedule,
+      auto_run_on_unlock: job.auto_run_on_unlock,
+      enabled: job.enabled,
+      last_run_unix: null,
+      last_status: null,
+    }),
+    deleteBackupJob: async () => true,
+    runBackupJob: async (jobId) => ({
+      job_id: jobId,
+      mode: "vault_mirror",
+      files_synced: 2,
+      files_skipped: 0,
+      bytes_processed: 4096,
+      output_path: "/Backups",
+      completed_unix: Math.floor(Date.now() / 1000),
+    }),
+    runAllMirrorBackups: async () => [],
+    runDueUnlockBackups: async () => [],
     openCryptomatorVault: async (path) => ({
       path,
       format: 8,

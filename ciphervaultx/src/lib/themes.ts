@@ -10,6 +10,8 @@ export type ThemeId =
   | "solar-sand"
   | "system";
 
+export type UiStyleId = "liquid-glass" | "modern-vault" | "swiss-minimal" | "cyber-neon";
+
 export type ColorMode = "dark" | "light";
 
 export interface ThemeMeta {
@@ -20,7 +22,42 @@ export interface ThemeMeta {
   swatches: readonly [string, string, string];
 }
 
+export interface UiStyleMeta {
+  id: UiStyleId;
+  label: string;
+  description: string;
+  badge: string;
+}
+
 export const THEME_STORAGE_KEY = "cvx-theme";
+export const UI_STYLE_STORAGE_KEY = "cvx-ui-style";
+
+export const UI_STYLES: readonly UiStyleMeta[] = [
+  {
+    id: "liquid-glass",
+    label: "iOS Liquid Glass",
+    description: "Translucent frosted surfaces, specular highlights, and rounded depth",
+    badge: "Glass",
+  },
+  {
+    id: "modern-vault",
+    label: "Modern Vault",
+    description: "Clean, high-legibility Bitwarden-style layout for everyday security",
+    badge: "Clean",
+  },
+  {
+    id: "swiss-minimal",
+    label: "Swiss Minimal 1px",
+    description: "Architectural hairline 1px grid borders, crisp corners, zero clutter",
+    badge: "1px Grid",
+  },
+  {
+    id: "cyber-neon",
+    label: "Cyber Neon HUD",
+    description: "Tactical luminous accents, glowing borders, and precision telemetry",
+    badge: "HUD",
+  },
+] as const;
 
 export const THEMES: readonly ThemeMeta[] = [
   {
@@ -105,6 +142,10 @@ export function isValidTheme(value: string): value is ThemeId {
   return THEMES.some((t) => t.id === value);
 }
 
+export function isValidUiStyle(value: string): value is UiStyleId {
+  return UI_STYLES.some((s) => s.id === value);
+}
+
 export function resolveMode(theme: ThemeId, prefersDark?: boolean): ColorMode {
   if (LIGHT_THEMES.has(theme)) return "light";
   if (theme === "system") {
@@ -139,6 +180,20 @@ export function applyTheme(theme: ThemeId, prefersDark?: boolean): ColorMode {
   return mode;
 }
 
+export function applyUiStyle(style: UiStyleId): UiStyleId {
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-ui-style", style);
+  }
+  if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem(UI_STYLE_STORAGE_KEY, style);
+    } catch {
+      // Ignore storage restrictions
+    }
+  }
+  return style;
+}
+
 export function loadTheme(): ThemeId {
   if (typeof localStorage !== "undefined") {
     try {
@@ -151,6 +206,20 @@ export function loadTheme(): ThemeId {
     }
   }
   return "neon-cyber";
+}
+
+export function loadUiStyle(): UiStyleId {
+  if (typeof localStorage !== "undefined") {
+    try {
+      const saved = localStorage.getItem(UI_STYLE_STORAGE_KEY);
+      if (saved && isValidUiStyle(saved)) {
+        return saved;
+      }
+    } catch {
+      // Ignore storage restrictions
+    }
+  }
+  return "modern-vault";
 }
 
 export function nextQuickTheme(current: ThemeId): ThemeId {

@@ -28,6 +28,10 @@ serde_json = "1"
 tauri = { version = "2", features = [] }
 # Tauri 2 native file/folder picker dialog plugin (MIT OR Apache-2.0)
 tauri-plugin-dialog = "2"
+# Tauri 2 native filesystem plugin for iOS File Provider / Android content URI fallback (MIT OR Apache-2.0)
+tauri-plugin-fs = "2"
+# RAII temporary staging files for iOS File Provider fallback (MIT OR Apache-2.0)
+tempfile = "3"
 # Async runtime for auto-lock timer, blocking I/O offload, and loopback WebDAV drive (MIT)
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "net", "io-util", "macros"] }
 # Random UUIDs for known vault registry IDs (MIT OR Apache-2.0)

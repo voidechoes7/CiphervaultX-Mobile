@@ -49,6 +49,10 @@ thiserror = "2"
 unicode-normalization = "0.1"
 # Zeroization of key material on drop (MIT OR Apache-2.0)
 zeroize = { version = "1.8", features = ["derive"] }
+# Pure-Rust ZIP compression/extraction (MIT)
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Pure-Rust 7z extraction (Apache-2.0)
+sevenz-rust = { version = "0.6", default-features = false }
 
 # Optional post-quantum hybrid KEM (OFF by default; pre-1.0, unaudited)
 # ml-kem (MIT OR Apache-2.0), x25519-dalek (BSD-3-Clause)

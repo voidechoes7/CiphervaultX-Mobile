@@ -114,13 +114,13 @@ jobs:
         run: |
           set -o pipefail
           npx tauri build --bundles nsis
-          cp "target/release/bundle/nsis/Fortress CipherVaultX_0.2.1_x64-setup.exe" ../Fortress-CipherVaultX-v0.2.1-windows-x64-setup.exe
-          ls -lh ../Fortress-CipherVaultX-v0.2.1-windows-x64-setup.exe
+          cp "target/release/bundle/nsis/Fortress CipherVaultX_0.3.0_x64-setup.exe" ../Fortress-CipherVaultX-v0.3.0-windows-x64-setup.exe
+          ls -lh ../Fortress-CipherVaultX-v0.3.0-windows-x64-setup.exe
       - name: Upload Windows Installer (.exe)
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Windows-exe
-          path: Fortress-CipherVaultX-v0.2.1-windows-x64-setup.exe
+          path: Fortress-CipherVaultX-v0.3.0-windows-x64-setup.exe
 
   android-apk:
     name: Android (Core Cross-Compile & Signed Upgradeable APK)
@@ -180,7 +180,7 @@ jobs:
         run: |
           npm install
           npm run build
-      - name: Initialize Tauri Android project & build signed APK (v0.2.1)
+      - name: Initialize Tauri Android project & build signed APK (v0.3.0)
         env:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
@@ -189,13 +189,13 @@ jobs:
           npx tauri icon src-tauri/icons/icon.png
           python3 scripts/patch_android.py
           npx tauri android build --apk --debug --target aarch64
-          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk ../Fortress-CipherVaultX-v0.2.1-android-signed.apk
-          ls -lh ../Fortress-CipherVaultX-v0.2.1-android-signed.apk
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk ../Fortress-CipherVaultX-v0.3.0-android-signed.apk
+          ls -lh ../Fortress-CipherVaultX-v0.3.0-android-signed.apk
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-Android-apk
-          path: Fortress-CipherVaultX-v0.2.1-android-signed.apk
+          path: Fortress-CipherVaultX-v0.3.0-android-signed.apk
 
   ios-ipa:
     name: iOS (Core Cross-Compile & Unsigned IPA)
@@ -220,18 +220,8 @@ jobs:
           set -o pipefail
           npx tauri ios init --ci 2>&1 | tee /tmp/ci-ios.log
           npx tauri icon src-tauri/icons/icon.png 2>&1 | tee -a /tmp/ci-ios.log
-          PBX=$(find src-tauri/gen/apple -maxdepth 3 -name "project.pbxproj" | head -n 1)
-          echo "Patching unsigned build settings in: $PBX" | tee -a /tmp/ci-ios.log
-          python3 - "$PBX" <<'PY'
-          import sys
-          p = sys.argv[1]
-          txt = open(p).read()
-          txt = txt.replace(
-              "buildSettings = {",
-              "buildSettings = {\n\t\t\t\tCODE_SIGNING_ALLOWED = NO;\n\t\t\t\tCODE_SIGNING_REQUIRED = NO;\n\t\t\t\tCODE_SIGN_IDENTITY = \"\";",
-          )
-          open(p, "w").write(txt)
-          PY
+          cargo fetch 2>&1 | tee -a /tmp/ci-ios.log
+          python3 scripts/patch_ios.py 2>&1 | tee -a /tmp/ci-ios.log
           npx tauri ios build --ci --debug --target aarch64 2>&1 | tee -a /tmp/ci-ios.log || true
           APP_PATH=$(find src-tauri/gen/apple ~/Library/Developer/Xcode/DerivedData -name "*.app" \( -path "*Applications*" -o -path "*iphoneos*" \) 2>/dev/null | head -n 1)
           echo "Built app bundle: $APP_PATH" | tee -a /tmp/ci-ios.log
@@ -242,13 +232,13 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -qry ../Fortress-CipherVaultX-v0.2.1-ios-unsigned.ipa Payload
-          ls -lh ../Fortress-CipherVaultX-v0.2.1-ios-unsigned.ipa
+          zip -qry ../Fortress-CipherVaultX-v0.3.0-ios-unsigned.ipa Payload
+          ls -lh ../Fortress-CipherVaultX-v0.3.0-ios-unsigned.ipa
       - name: Upload iOS Unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: Fortress-CipherVaultX-iOS-ipa
-          path: Fortress-CipherVaultX-v0.2.1-ios-unsigned.ipa
+          path: Fortress-CipherVaultX-v0.3.0-ios-unsigned.ipa
       - name: Report iOS failure diagnostics
         if: failure()
         env:
@@ -275,7 +265,7 @@ jobs:
           PY
 
   publish-release:
-    name: Publish GitHub Release (v0.2.1-fortress)
+    name: Publish GitHub Release (v0.3.0-fortress)
     runs-on: ubuntu-latest
     needs: [frontend, rust-linux, rust-windows, android-apk, ios-ipa]
     if: github.event_name != 'pull_request'
@@ -298,17 +288,17 @@ jobs:
       - name: Verify direct installer assets (.apk, .exe, .ipa)
         run: |
           ls -lh release-assets/
-          test -f release-assets/Fortress-CipherVaultX-v0.2.1-android-signed.apk
-          test -f release-assets/Fortress-CipherVaultX-v0.2.1-windows-x64-setup.exe
-          test -f release-assets/Fortress-CipherVaultX-v0.2.1-ios-unsigned.ipa
-      - name: Publish direct installers to GitHub Release v0.2.1-fortress
+          test -f release-assets/Fortress-CipherVaultX-v0.3.0-android-signed.apk
+          test -f release-assets/Fortress-CipherVaultX-v0.3.0-windows-x64-setup.exe
+          test -f release-assets/Fortress-CipherVaultX-v0.3.0-ios-unsigned.ipa
+      - name: Publish direct installers to GitHub Release v0.3.0-fortress
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v0.2.1-fortress"
-          APK="release-assets/Fortress-CipherVaultX-v0.2.1-android-signed.apk"
-          EXE="release-assets/Fortress-CipherVaultX-v0.2.1-windows-x64-setup.exe"
-          IPA="release-assets/Fortress-CipherVaultX-v0.2.1-ios-unsigned.ipa"
+          TAG="v0.3.0-fortress"
+          APK="release-assets/Fortress-CipherVaultX-v0.3.0-android-signed.apk"
+          EXE="release-assets/Fortress-CipherVaultX-v0.3.0-windows-x64-setup.exe"
+          IPA="release-assets/Fortress-CipherVaultX-v0.3.0-ios-unsigned.ipa"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$EXE" "$IPA" \
               --clobber \
@@ -317,7 +307,7 @@ jobs:
             gh release create "$TAG" "$APK" "$EXE" "$IPA" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Fortress CipherVaultX v0.2.1" \
+              --title "Fortress CipherVaultX v0.3.0" \
               --notes "Direct installers (no .zip) for Android (.apk), Windows (.exe), and iOS (.ipa)."
           fi
 

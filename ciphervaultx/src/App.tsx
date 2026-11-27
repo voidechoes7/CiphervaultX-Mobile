@@ -1,6 +1,17 @@
 import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
-import { FileArchive, KeyRound, Lock, Menu, Moon, Settings, Shield, Sun, X } from "lucide-react";
+import {
+  CloudUpload,
+  FileArchive,
+  KeyRound,
+  Lock,
+  Menu,
+  Moon,
+  Settings,
+  Shield,
+  Sun,
+  X,
+} from "lucide-react";
 import {
   backend,
   isTauriRuntime,
@@ -11,15 +22,20 @@ import {
 } from "@/lib/api";
 import {
   applyTheme,
+  applyUiStyle,
   isValidTheme,
+  isValidUiStyle,
   loadTheme,
+  loadUiStyle,
   nextQuickTheme,
   resolveMode,
   type ThemeId,
+  type UiStyleId,
 } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { AddExistingVaultDialog } from "./components/AddExistingVaultDialog";
 import { AppAccessGate } from "./components/AppAccessGate";
+import { AutoBackupsView } from "./components/AutoBackupsView";
 import { CreateVaultWizard } from "./components/CreateVaultWizard";
 import { DeviceFileBrowserDialog } from "./components/DeviceFileBrowserDialog";
 import { FileExplorer } from "./components/FileExplorer";
@@ -42,6 +58,7 @@ export const App: React.FC = () => {
   const [vaults, setVaults] = React.useState<VaultInfo[]>([]);
   const [view, setView] = React.useState<ActiveView>({ kind: "dashboard" });
   const [theme, setTheme] = React.useState<ThemeId>(() => loadTheme());
+  const [uiStyle, setUiStyle] = React.useState<UiStyleId>(() => loadUiStyle());
   const [autoLockMinutes, setAutoLockMinutes] = React.useState<number>(10);
   const [wizardOpen, setWizardOpen] = React.useState(false);
   const [addExistingOpen, setAddExistingOpen] = React.useState(false);
@@ -86,6 +103,10 @@ export const App: React.FC = () => {
   }, [theme]);
 
   React.useEffect(() => {
+    applyUiStyle(uiStyle);
+  }, [uiStyle]);
+
+  React.useEffect(() => {
     void backend.getAppGateStatus().then((status) => {
       setGateStatus(status);
       if (!status.enabled || status.unlocked) {
@@ -96,6 +117,10 @@ export const App: React.FC = () => {
       if (isValidTheme(s.theme)) {
         setTheme(s.theme);
         applyTheme(s.theme);
+      }
+      if (s.ui_style && isValidUiStyle(s.ui_style)) {
+        setUiStyle(s.ui_style);
+        applyUiStyle(s.ui_style);
       }
       setAutoLockMinutes(s.auto_lock_minutes);
     });
@@ -215,7 +240,21 @@ export const App: React.FC = () => {
   const handleThemeChange = async (next: ThemeId) => {
     setTheme(next);
     applyTheme(next);
-    await backend.updateSettings({ theme: next, auto_lock_minutes: autoLockMinutes });
+    await backend.updateSettings({
+      theme: next,
+      ui_style: uiStyle,
+      auto_lock_minutes: autoLockMinutes,
+    });
+  };
+
+  const handleUiStyleChange = async (next: UiStyleId) => {
+    setUiStyle(next);
+    applyUiStyle(next);
+    await backend.updateSettings({
+      theme,
+      ui_style: next,
+      auto_lock_minutes: autoLockMinutes,
+    });
   };
 
   const handleQuickToggleTheme = () => {
@@ -224,7 +263,11 @@ export const App: React.FC = () => {
 
   const handleAutoLockChange = async (minutes: number) => {
     setAutoLockMinutes(minutes);
-    await backend.updateSettings({ theme, auto_lock_minutes: minutes });
+    await backend.updateSettings({
+      theme,
+      ui_style: uiStyle,
+      auto_lock_minutes: minutes,
+    });
   };
 
   const selectView = (next: ActiveView) => {
@@ -263,7 +306,7 @@ export const App: React.FC = () => {
           />
           <div>
             <div className="text-sm font-semibold leading-tight tracking-tight">CipherVaultX</div>
-            <div className="text-[10px] text-muted-foreground">Fortress · v0.2.1</div>
+            <div className="text-[10px] text-muted-foreground">Fortress · v0.3.0</div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -365,6 +408,8 @@ export const App: React.FC = () => {
           />
         )}
 
+        {view.kind === "backups" && <AutoBackupsView vaults={vaults} />}
+
         {view.kind === "generator" && <PasswordGeneratorView />}
 
         {view.kind === "tools" && <ToolsView />}
@@ -372,10 +417,12 @@ export const App: React.FC = () => {
         {view.kind === "settings" && (
           <SettingsView
             theme={theme}
+            uiStyle={uiStyle}
             autoLockMinutes={autoLockMinutes}
             vaults={vaults}
             gateStatus={gateStatus}
             onThemeChange={handleThemeChange}
+            onUiStyleChange={handleUiStyleChange}
             onAutoLockChange={handleAutoLockChange}
             onLockAppGate={() => void handleLockAppGate()}
           />
@@ -385,7 +432,7 @@ export const App: React.FC = () => {
       {/* Mobile bottom tab bar (< 768px) */}
       <nav
         aria-label="Mobile bottom navigation"
-        className="surface-glass grid shrink-0 grid-cols-4 border-t border-border md:hidden"
+        className="surface-glass grid shrink-0 grid-cols-5 border-t border-border md:hidden"
         style={{ paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))" }}
       >
         {(
@@ -396,6 +443,13 @@ export const App: React.FC = () => {
               icon: Shield,
               active: view.kind === "dashboard" || view.kind === "explorer",
               target: { kind: "dashboard" } as ActiveView,
+            },
+            {
+              key: "backups",
+              label: "Backups",
+              icon: CloudUpload,
+              active: view.kind === "backups",
+              target: { kind: "backups" } as ActiveView,
             },
             {
               key: "tools",
@@ -427,7 +481,7 @@ export const App: React.FC = () => {
               type="button"
               onClick={() => selectView(item.target)}
               className={cn(
-                "flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition-colors",
+                "flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors",
                 item.active ? "text-primary" : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -467,6 +521,8 @@ export const App: React.FC = () => {
           setUnlockTarget(null);
           await refreshVaults();
           selectView({ kind: "explorer", vaultId: unlocked.id });
+          // Automatically run VaultMirror jobs marked auto_run_on_unlock (or due by schedule)
+          void backend.runDueUnlockBackups(unlocked.id).catch(() => undefined);
         }}
       />
 

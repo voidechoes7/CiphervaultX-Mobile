@@ -532,6 +532,40 @@ impl Vault {
         })
     }
 
+    pub fn root_path(&self) -> &Path {
+        &self.root
+    }
+
+    /// Stream-decrypt a vault file directly into any `Write` sink without
+    /// staging intermediate plaintext on disk.
+    pub fn export_file_to_writer<W: Write>(
+        &self,
+        src_vault_path: &str,
+        writer: &mut W,
+    ) -> Result<u64> {
+        let parts = split_vault_path(src_vault_path)?;
+        let (name, parent_parts) = parts.split_last().ok_or(VaultError::EntryNotFound)?;
+        let parent_dir_id = self.resolve_dir_id(parent_parts)?;
+        let parent_storage = dir_storage_path(&self.root, &self.keys.dir_hash, &parent_dir_id)?;
+
+        let enc_file_name = encrypt_name(&self.keys.name_siv, &parent_dir_id, name, false)?;
+        let src_disk = parent_storage.join(&enc_file_name);
+        if !src_disk.is_file() {
+            return Err(VaultError::EntryNotFound);
+        }
+
+        let src_file = File::open(&src_disk)?;
+        let mut reader = BufReader::new(src_file);
+        decrypt_stream(
+            &mut reader,
+            writer,
+            self.config.chunk_size,
+            &self.vault_id,
+            &self.keys.file_header,
+            |_| {},
+        )
+    }
+
     pub fn read_file_bytes(&self, src_vault_path: &str, max_bytes: u64) -> Result<Vec<u8>> {
         let parts = split_vault_path(src_vault_path)?;
         let (name, parent_parts) = parts.split_last().ok_or(VaultError::EntryNotFound)?;

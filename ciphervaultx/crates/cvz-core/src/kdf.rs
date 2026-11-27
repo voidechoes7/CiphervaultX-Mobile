@@ -6,7 +6,9 @@ use crate::error::{Result, VaultError};
 use crate::secret::Key32;
 
 pub const MIN_MEMORY_KIB: u32 = 65_536;
+pub const MAX_MEMORY_KIB: u32 = 2 * 1024 * 1024; // 2048 MiB safety ceiling
 pub const MIN_TIME_COST: u32 = 2;
+pub const MAX_TIME_COST: u32 = 500;
 pub const MIN_PARALLELISM: u32 = 1;
 pub const MAX_PARALLELISM: u32 = 16;
 pub const MIN_PASSWORD_CHARS: usize = 12;
@@ -49,9 +51,24 @@ impl Argon2Params {
         }
     }
 
+    pub fn from_mib(memory_mib: u32, t_cost: u32, p_cost: u32) -> Result<Self> {
+        let m_cost = memory_mib
+            .checked_mul(1024)
+            .ok_or(VaultError::WeakKdfParams)?;
+        let params = Self {
+            m_cost,
+            t_cost,
+            p_cost,
+        };
+        params.validate()?;
+        Ok(params)
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.m_cost < MIN_MEMORY_KIB
+            || self.m_cost > MAX_MEMORY_KIB
             || self.t_cost < MIN_TIME_COST
+            || self.t_cost > MAX_TIME_COST
             || self.p_cost < MIN_PARALLELISM
             || self.p_cost > MAX_PARALLELISM
         {
